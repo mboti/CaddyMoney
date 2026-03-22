@@ -9,6 +9,10 @@ import 'package:caddymoney/screens/user/user_home_screen.dart';
 import 'package:caddymoney/screens/merchant/merchant_dashboard_screen.dart';
 import 'package:caddymoney/screens/admin/admin_dashboard_screen.dart';
 import 'package:caddymoney/screens/settings_screen.dart';
+import 'package:caddymoney/screens/user/profile_screen.dart';
+import 'package:caddymoney/screens/user/receive_money_screen.dart';
+import 'package:caddymoney/screens/user/send_money_screen.dart';
+import 'package:caddymoney/screens/user/transactions_screen.dart';
 
 class AppRouter {
   static final GoRouter router = GoRouter(
@@ -75,6 +79,36 @@ class AppRouter {
         name: 'settings',
         pageBuilder: (context, state) => const NoTransitionPage(
           child: SettingsScreen(),
+        ),
+      ),
+
+      // User flows
+      GoRoute(
+        path: AppRoutes.sendMoney,
+        name: 'send-money',
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: SendMoneyScreen(),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.receiveMoney,
+        name: 'receive-money',
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: ReceiveMoneyScreen(),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.transactions,
+        name: 'transactions',
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: TransactionsScreen(),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.profile,
+        name: 'profile',
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: ProfileScreen(),
         ),
       ),
     ],

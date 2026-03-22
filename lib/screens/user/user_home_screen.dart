@@ -5,6 +5,7 @@ import 'package:caddymoney/providers/auth_provider.dart';
 import 'package:caddymoney/theme.dart';
 import 'package:caddymoney/core/theme/app_colors.dart';
 import 'package:caddymoney/core/utils/app_localizations_temp.dart';
+import 'package:caddymoney/nav.dart';
 
 class UserHomeScreen extends StatelessWidget {
   const UserHomeScreen({super.key});
@@ -54,7 +55,7 @@ class UserHomeScreen extends StatelessWidget {
                       icon: Icons.send_outlined,
                       label: l10n.sendMoney,
                       color: AppColors.accent,
-                      onTap: () => context.push('/send-money'),
+                      onTap: () => context.push(AppRoutes.sendMoney),
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
@@ -63,7 +64,7 @@ class UserHomeScreen extends StatelessWidget {
                       icon: Icons.qr_code_scanner_outlined,
                       label: l10n.receiveMoney,
                       color: AppColors.success,
-                      onTap: () => context.push('/receive-money'),
+                      onTap: () => context.push(AppRoutes.receiveMoney),
                     ),
                   ),
                 ],
@@ -76,7 +77,7 @@ class UserHomeScreen extends StatelessWidget {
                       icon: Icons.receipt_long_outlined,
                       label: l10n.transactions,
                       color: AppColors.primary,
-                      onTap: () => context.push('/transactions'),
+                      onTap: () => context.push(AppRoutes.transactions),
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
@@ -85,7 +86,7 @@ class UserHomeScreen extends StatelessWidget {
                       icon: Icons.person_outline,
                       label: l10n.profile,
                       color: AppColors.primaryDark,
-                      onTap: () => context.push('/profile'),
+                      onTap: () => context.push(AppRoutes.profile),
                     ),
                   ),
                 ],
