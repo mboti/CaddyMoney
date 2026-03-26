@@ -71,11 +71,29 @@ class _MerchantAuthScreenState extends State<MerchantAuthScreen> {
 
     if (success && mounted) {
       context.go('/merchant-dashboard');
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(authProvider.error ?? 'Authentication failed')),
-      );
+      return;
     }
+
+    if (!mounted) return;
+    final error = authProvider.error ?? 'Authentication failed';
+    final isEmailNotConfirmed = error.toLowerCase().contains('email not confirmed');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(isEmailNotConfirmed ? 'Email not confirmed. Please check your inbox.' : error),
+        action: isEmailNotConfirmed
+            ? SnackBarAction(
+                label: 'Resend',
+                onPressed: () async {
+                  final ok = await context.read<AuthProvider>().resendSignupConfirmationEmail(_emailController.text);
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(ok ? 'Confirmation email sent.' : (context.read<AuthProvider>().error ?? 'Failed to resend'))),
+                  );
+                },
+              )
+            : null,
+      ),
+    );
   }
 
   @override
@@ -273,6 +291,23 @@ class _MerchantAuthScreenState extends State<MerchantAuthScreen> {
                     ),
                   ),
                 ),
+                if (authProvider.error != null && authProvider.error!.toLowerCase().contains('email not confirmed')) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Center(
+                    child: TextButton(
+                      onPressed: authProvider.isLoading
+                          ? null
+                          : () async {
+                              final ok = await context.read<AuthProvider>().resendSignupConfirmationEmail(_emailController.text);
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(ok ? 'Confirmation email sent.' : (context.read<AuthProvider>().error ?? 'Failed to resend'))),
+                              );
+                            },
+                      child: const Text('Resend confirmation email', style: TextStyle(color: AppColors.primary)),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

@@ -86,6 +86,13 @@ class AuthProvider with ChangeNotifier {
     _isLoading = false;
 
     if (result['success'] == true) {
+      // If email confirmations are enabled, the user must confirm before a session exists.
+      if (result['needsEmailConfirmation'] == true) {
+        _error = 'Email not confirmed';
+        notifyListeners();
+        return false;
+      }
+
       await _loadCurrentUser();
       notifyListeners();
       return true;
@@ -126,6 +133,12 @@ class AuthProvider with ChangeNotifier {
     _isLoading = false;
 
     if (result['success'] == true) {
+      if (result['needsEmailConfirmation'] == true) {
+        _error = 'Email not confirmed';
+        notifyListeners();
+        return false;
+      }
+
       await _loadCurrentUser();
       notifyListeners();
       return true;
@@ -134,6 +147,18 @@ class AuthProvider with ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  Future<bool> resendSignupConfirmationEmail(String email) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    final ok = await _authService.resendSignupConfirmationEmail(email);
+    _isLoading = false;
+    if (!ok) _error = 'Failed to resend confirmation email';
+    notifyListeners();
+    return ok;
   }
 
   Future<void> signOut() async {

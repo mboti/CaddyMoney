@@ -48,7 +48,12 @@ class AuthService {
       return {'success': true, 'profile': profile};
     } on AuthException catch (e) {
       debugPrint('Auth error: ${e.message}');
-      return {'success': false, 'error': e.message};
+      return {
+        'success': false,
+        'error': e.message,
+        'code': e.statusCode,
+        'isEmailNotConfirmed': _looksLikeEmailNotConfirmed(e.message),
+      };
     } catch (e) {
       debugPrint('Sign in error: $e');
       return {'success': false, 'error': 'An error occurred during sign in'};
@@ -78,7 +83,15 @@ class AuthService {
         return {'success': false, 'error': 'Sign up failed'};
       }
 
-      return {'success': true, 'user': response.user};
+      // If email confirmations are enabled in Supabase Auth,
+      // signUp returns a user but no active session until the user confirms.
+      final needsEmailConfirmation = response.session == null;
+      return {
+        'success': true,
+        'user': response.user,
+        'needsEmailConfirmation': needsEmailConfirmation,
+        'email': cleanedEmail,
+      };
     } on AuthException catch (e) {
       debugPrint('Auth error: ${e.message}');
       return {'success': false, 'error': e.message};
@@ -131,13 +144,33 @@ class AuthService {
 
       await _supabase.from('merchants').insert(merchantData);
 
-      return {'success': true, 'user': authResponse.user};
+      final needsEmailConfirmation = authResponse.session == null;
+      return {
+        'success': true,
+        'user': authResponse.user,
+        'needsEmailConfirmation': needsEmailConfirmation,
+        'email': cleanedEmail,
+      };
     } on AuthException catch (e) {
       debugPrint('Auth error: ${e.message}');
       return {'success': false, 'error': e.message};
     } catch (e) {
       debugPrint('Merchant registration error: $e');
       return {'success': false, 'error': 'An error occurred during registration'};
+    }
+  }
+
+  Future<bool> resendSignupConfirmationEmail(String email) async {
+    try {
+      final cleanedEmail = _cleanEmail(email);
+      await _supabase.auth.resend(type: OtpType.signup, email: cleanedEmail);
+      return true;
+    } on AuthException catch (e) {
+      debugPrint('Resend confirmation auth error: ${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('Resend confirmation error: $e');
+      return false;
     }
   }
 
@@ -162,5 +195,12 @@ class AuthService {
       debugPrint('Password reset error: $e');
       return false;
     }
+  }
+
+  bool _looksLikeEmailNotConfirmed(String message) {
+    final m = message.toLowerCase();
+    return m.contains('email not confirmed') ||
+        m.contains('email address not confirmed') ||
+        m.contains('not confirmed');
   }
 }
