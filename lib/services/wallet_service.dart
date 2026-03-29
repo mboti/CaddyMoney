@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:caddymoney/models/wallet_model.dart';
-import 'package:caddymoney/supabase/supabase_config.dart';
+import 'package:caddymoney/core/config/supabase_config.dart';
 
 class WalletService {
   Future<WalletModel?> getMyUserWallet() async {
@@ -31,6 +31,18 @@ class WalletService {
     } catch (e) {
       debugPrint('WalletService.getMerchantWallet failed: $e');
       return null;
+    }
+  }
+
+  Future<Map<String, dynamic>> claimTestTopUp({double amount = 1000}) async {
+    try {
+      final res = await SupabaseConfig.client.rpc('claim_test_topup', params: {'topup_amount': amount});
+      if (res is Map<String, dynamic>) return res;
+      if (res is Map) return Map<String, dynamic>.from(res);
+      return {'success': false, 'error': 'Unexpected response'};
+    } catch (e) {
+      debugPrint('WalletService.claimTestTopUp failed: $e');
+      return {'success': false, 'error': 'Top up failed'};
     }
   }
 }

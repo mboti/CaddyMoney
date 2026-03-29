@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:caddymoney/models/user_model.dart';
 import 'package:caddymoney/core/enums/app_role.dart';
-import 'package:caddymoney/supabase/supabase_config.dart';
+import 'package:caddymoney/core/config/supabase_config.dart';
 
 class AuthService {
   SupabaseClient get _supabase => SupabaseConfig.client;
@@ -45,6 +45,14 @@ class AuthService {
       }
 
       final profile = await getCurrentUserProfile();
+      if (profile == null) {
+        // This usually means the profile trigger failed or RLS prevents reads.
+        // Treat it as a failure because the app relies on profile + role.
+        return {
+          'success': false,
+          'error': 'Profile not found. Please contact support or try again.',
+        };
+      }
       return {'success': true, 'profile': profile};
     } on AuthException catch (e) {
       debugPrint('Auth error: ${e.message}');
@@ -202,5 +210,47 @@ class AuthService {
     return m.contains('email not confirmed') ||
         m.contains('email address not confirmed') ||
         m.contains('not confirmed');
+  }
+
+  Future<Map<String, dynamic>> createAdminFromBootstrap({
+    required String email,
+    required String password,
+    required String fullName,
+    required String bootstrapToken,
+  }) async {
+    try {
+      final cleanedEmail = _cleanEmail(email);
+      final cleanedPassword = _cleanPassword(password);
+      final cleanedName = fullName.trim();
+
+      final res = await _supabase.functions.invoke(
+        'admin_create_admin',
+        body: {
+          'email': cleanedEmail,
+          'password': cleanedPassword,
+          'full_name': cleanedName,
+          'bootstrap_token': bootstrapToken.trim(),
+        },
+      );
+
+      final data = res.data;
+      if (data is Map) {
+        final success = data['success'] == true;
+        if (success) return {'success': true, 'userId': data['user_id']};
+        return {
+          'success': false,
+          'error': (data['error'] ?? 'Failed to create admin').toString(),
+        };
+      }
+
+      // Some errors can surface as non-map payloads.
+      return {'success': false, 'error': 'Failed to create admin'};
+    } on FunctionException catch (e) {
+      debugPrint('Create admin function error: ${e.toString()}');
+      return {'success': false, 'error': e.toString()};
+    } catch (e) {
+      debugPrint('Create admin error: $e');
+      return {'success': false, 'error': 'An error occurred while creating the admin'};
+    }
   }
 }

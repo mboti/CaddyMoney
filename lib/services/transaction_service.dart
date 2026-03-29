@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:caddymoney/models/transaction_model.dart';
-import 'package:caddymoney/supabase/supabase_config.dart';
+import 'package:caddymoney/core/config/supabase_config.dart';
 
 class TransferResult {
   final bool success;
@@ -21,6 +21,30 @@ class TransferResult {
 }
 
 class TransactionService {
+  Future<String?> findActiveUserIdByEmail(String email) async {
+    try {
+      final cleaned = email.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
+      if (cleaned.isEmpty) return null;
+
+      final matches = await SupabaseConfig.client.rpc(
+        'find_active_profiles',
+        params: {'p_identifier': cleaned, 'p_limit': 10},
+      );
+      final list = (matches as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      if (list.isEmpty) return null;
+
+      final chosen = list.firstWhere(
+        (m) => (m['email']?.toString().toLowerCase() ?? '') == cleaned,
+        orElse: () => <String, dynamic>{},
+      );
+      final id = chosen['id']?.toString();
+      return (id == null || id.isEmpty) ? null : id;
+    } catch (e) {
+      debugPrint('TransactionService.findActiveUserIdByEmail failed: $e');
+      return null;
+    }
+  }
+
   Future<List<TransactionModel>> listMyTransactions({int limit = 50}) async {
     try {
       final uid = SupabaseConfig.auth.currentUser?.id;
@@ -48,6 +72,7 @@ class TransactionService {
     required String receiverUserId,
     required double amount,
     String? note,
+    String? paymentMethodId,
   }) async {
     try {
       final res = await SupabaseService.rpc(
@@ -56,6 +81,7 @@ class TransactionService {
           'receiver_user_id': receiverUserId,
           'transfer_amount': amount,
           'transfer_note': note,
+          'payment_method_id': paymentMethodId,
         },
       );
 
@@ -71,6 +97,7 @@ class TransactionService {
     required String merchantUniqueId,
     required double amount,
     String? note,
+    String? paymentMethodId,
   }) async {
     try {
       final res = await SupabaseService.rpc(
@@ -79,6 +106,7 @@ class TransactionService {
           'merchant_unique_id': merchantUniqueId,
           'transfer_amount': amount,
           'transfer_note': note,
+          'payment_method_id': paymentMethodId,
         },
       );
 

@@ -66,6 +66,40 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  Future<bool> signInForRole({
+    required String email,
+    required String password,
+    required AppRole requiredRole,
+  }) async {
+    final ok = await signIn(email, password);
+    if (!ok) return false;
+
+    final role = _currentUser?.role;
+    if (role == requiredRole) return true;
+
+    _error = 'Unauthorized for ${requiredRole.displayName}';
+    try {
+      await _authService.signOut();
+    } catch (e) {
+      debugPrint('Failed to sign out after unauthorized role login: $e');
+    }
+    _currentUser = null;
+    notifyListeners();
+    return false;
+  }
+
+  Future<bool> resetPassword(String email) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    final ok = await _authService.resetPassword(email);
+    _isLoading = false;
+    if (!ok) _error = 'Failed to send reset email';
+    notifyListeners();
+    return ok;
+  }
+
   Future<bool> signUpUser({
     required String email,
     required String password,
@@ -165,6 +199,34 @@ class AuthProvider with ChangeNotifier {
     await _authService.signOut();
     _currentUser = null;
     notifyListeners();
+  }
+
+  Future<bool> createAdminFromBootstrap({
+    required String email,
+    required String password,
+    required String fullName,
+    required String bootstrapToken,
+  }) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    final result = await _authService.createAdminFromBootstrap(
+      email: email,
+      password: password,
+      fullName: fullName,
+      bootstrapToken: bootstrapToken,
+    );
+
+    _isLoading = false;
+    if (result['success'] == true) {
+      notifyListeners();
+      return true;
+    }
+
+    _error = (result['error'] ?? 'Failed to create admin').toString();
+    notifyListeners();
+    return false;
   }
 
   void clearError() {

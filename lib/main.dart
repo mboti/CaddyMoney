@@ -6,7 +6,7 @@ import 'package:caddymoney/theme.dart';
 import 'package:caddymoney/nav.dart';
 import 'package:caddymoney/providers/auth_provider.dart';
 import 'package:caddymoney/providers/language_provider.dart';
-import 'package:caddymoney/supabase/supabase_config.dart';
+import 'package:caddymoney/core/config/supabase_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

@@ -5,6 +5,7 @@ import 'package:caddymoney/providers/auth_provider.dart';
 import 'package:caddymoney/theme.dart';
 import 'package:caddymoney/core/theme/app_colors.dart';
 import 'package:caddymoney/core/utils/app_localizations_temp.dart';
+import 'package:caddymoney/core/enums/app_role.dart';
 
 class UserAuthScreen extends StatefulWidget {
   const UserAuthScreen({super.key});
@@ -42,9 +43,10 @@ class _UserAuthScreenState extends State<UserAuthScreen> {
     bool success;
 
     if (_isSignIn) {
-      success = await authProvider.signIn(
-        _emailController.text.trim(),
-        _passwordController.text.trim(),
+      success = await authProvider.signInForRole(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+        requiredRole: AppRole.standardUser,
       );
     } else {
       success = await authProvider.signUpUser(

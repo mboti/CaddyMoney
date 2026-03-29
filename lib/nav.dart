@@ -9,6 +9,7 @@ import 'package:caddymoney/screens/user/user_home_screen.dart';
 import 'package:caddymoney/screens/merchant/merchant_dashboard_screen.dart';
 import 'package:caddymoney/screens/admin/admin_dashboard_screen.dart';
 import 'package:caddymoney/screens/settings_screen.dart';
+import 'package:caddymoney/screens/settings/payment_methods_screen.dart';
 import 'package:caddymoney/screens/user/profile_screen.dart';
 import 'package:caddymoney/screens/user/receive_money_screen.dart';
 import 'package:caddymoney/screens/user/send_money_screen.dart';
@@ -81,6 +82,13 @@ class AppRouter {
           child: SettingsScreen(),
         ),
       ),
+      GoRoute(
+        path: AppRoutes.paymentMethods,
+        name: 'payment-methods',
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: PaymentMethodsScreen(),
+        ),
+      ),
 
       // User flows
       GoRoute(
@@ -125,6 +133,7 @@ class AppRoutes {
   static const String merchantDashboard = '/merchant-dashboard';
   static const String adminDashboard = '/admin-dashboard';
   static const String settings = '/settings';
+  static const String paymentMethods = '/payment-methods';
   static const String sendMoney = '/send-money';
   static const String receiveMoney = '/receive-money';
   static const String transactions = '/transactions';

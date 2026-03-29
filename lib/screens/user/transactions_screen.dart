@@ -1,13 +1,53 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:caddymoney/core/theme/app_colors.dart';
+import 'package:caddymoney/core/enums/transaction_type.dart';
+import 'package:caddymoney/models/transaction_model.dart';
+import 'package:caddymoney/services/transaction_service.dart';
+import 'package:caddymoney/core/config/supabase_config.dart';
 import 'package:caddymoney/theme.dart';
 
-class TransactionsScreen extends StatelessWidget {
+class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key});
 
   @override
+  State<TransactionsScreen> createState() => _TransactionsScreenState();
+}
+
+class _TransactionsScreenState extends State<TransactionsScreen> {
+  final TransactionService _service = TransactionService();
+
+  bool _loading = true;
+  List<TransactionModel> _items = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final list = await _service.listMyTransactions();
+      if (!mounted) return;
+      setState(() => _items = list);
+    } catch (e) {
+      debugPrint('TransactionsScreen._load failed: $e');
+    } finally {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final uid = SupabaseConfig.auth.currentUser?.id;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Transactions'),
@@ -15,66 +55,175 @@ class TransactionsScreen extends StatelessWidget {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.pop(),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh',
+            icon: Icon(Icons.refresh, color: cs.onSurface),
+            onPressed: _loading ? null : _load,
+          ),
+        ],
       ),
       body: SafeArea(
-        child: ListView.separated(
-          padding: AppSpacing.paddingLg,
-          itemCount: 8,
-          separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.sm),
-          itemBuilder: (context, index) {
-            final isCredit = index.isEven;
-            return Container(
-              padding: AppSpacing.paddingMd,
-              decoration: BoxDecoration(
-                border: Border.all(color: Theme.of(context).colorScheme.outline),
-                borderRadius: BorderRadius.circular(AppRadius.md),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
-                    ),
-                    child: Icon(
-                      isCredit ? Icons.arrow_downward : Icons.arrow_upward,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _items.isEmpty
+                  ? ListView(
+                      padding: AppSpacing.paddingLg,
                       children: [
+                        const SizedBox(height: AppSpacing.xl),
+                        Icon(Icons.receipt_long, size: 44, color: cs.onSurfaceVariant),
+                        const SizedBox(height: AppSpacing.md),
+                        Text('No transactions yet', style: tt.titleMedium, textAlign: TextAlign.center),
+                        const SizedBox(height: 6),
                         Text(
-                          isCredit ? 'Incoming transfer' : 'Outgoing transfer',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Demo • Today',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                          'When you send or receive money, it will appear here for both accounts.',
+                          style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                          textAlign: TextAlign.center,
                         ),
                       ],
+                    )
+                  : ListView.separated(
+                      padding: AppSpacing.paddingLg,
+                      itemCount: _items.length,
+                      separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.sm),
+                      itemBuilder: (context, index) {
+                        final t = _items[index];
+                        final isCredit = uid != null && t.receiverProfileId == uid;
+                        return TransactionListTile(transaction: t, isCredit: isCredit);
+                      },
                     ),
-                  ),
-                  Text(
-                    isCredit ? '+€20.00' : '-€14.50',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: isCredit ? Colors.green : Colors.red,
-                        ),
-                  ),
-                ],
-              ),
-            );
-          },
         ),
+      ),
+    );
+  }
+}
+
+class TransactionListTile extends StatelessWidget {
+  final TransactionModel transaction;
+  final bool isCredit;
+
+  const TransactionListTile({super.key, required this.transaction, required this.isCredit});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    final amountColor = isCredit ? AppColors.transactionReceived : AppColors.transactionSent;
+    final icon = isCredit ? Icons.arrow_downward : Icons.arrow_upward;
+    final title = _titleFor(transaction.type, isCredit);
+    final subtitle = _subtitleFor(transaction);
+
+    return Container(
+      padding: AppSpacing.paddingMd,
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.18),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.35)),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              color: amountColor.withValues(alpha: 0.12),
+            ),
+            child: Icon(icon, color: amountColor),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: Text(title, style: tt.titleMedium, overflow: TextOverflow.ellipsis)),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${isCredit ? '+' : '-'}€${transaction.amount.toStringAsFixed(2)}',
+                      style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w800, color: amountColor),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(subtitle, style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                if (_paymentSummary(transaction) != null) ...[
+                  const SizedBox(height: 6),
+                  _PaymentPill(text: _paymentSummary(transaction)!),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _titleFor(TransactionType type, bool isCredit) {
+    switch (type) {
+      case TransactionType.userToUser:
+        return isCredit ? 'Incoming transfer' : 'Outgoing transfer';
+      case TransactionType.userToMerchant:
+        return 'Merchant payment';
+      case TransactionType.refund:
+        return 'Refund';
+      case TransactionType.adjustment:
+        return 'Adjustment';
+    }
+  }
+
+  static String _subtitleFor(TransactionModel t) {
+    final date = _formatTime(t.createdAt);
+    final ref = t.transactionReference;
+    final note = (t.note ?? '').trim();
+    if (note.isEmpty) return '$ref • $date';
+    return '$ref • $date • $note';
+  }
+
+  static String _formatTime(DateTime dt) {
+    final d = dt.toLocal();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(d.day)}/${two(d.month)}/${d.year} ${two(d.hour)}:${two(d.minute)}';
+  }
+
+  static String? _paymentSummary(TransactionModel t) {
+    final m = t.metadata;
+    if (m == null) return null;
+    final pm = m['payment_method'];
+    if (pm is! Map) return null;
+    final brand = pm['brand']?.toString();
+    final last4 = pm['last4']?.toString();
+    if (brand == null || last4 == null) return null;
+    return '${brand.toUpperCase()} •••• $last4';
+  }
+}
+
+class _PaymentPill extends StatelessWidget {
+  final String text;
+  const _PaymentPill({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.35),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.credit_card, size: 16, color: cs.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Text(text, style: tt.labelMedium?.copyWith(color: cs.onSurfaceVariant)),
+        ],
       ),
     );
   }

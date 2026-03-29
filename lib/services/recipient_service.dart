@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:caddymoney/models/saved_recipient_model.dart';
-import 'package:caddymoney/supabase/supabase_config.dart';
+import 'package:caddymoney/core/config/supabase_config.dart';
 
 class AddRecipientResult {
   final bool success;
@@ -95,19 +95,20 @@ class RecipientService {
       }
 
       // Prevent duplicates: rely on DB unique constraint, but also check client-side for a nicer message.
-      final existing = await SupabaseService.selectSingle(
-        'user_recipients',
-        select: 'owner_user_id, recipient_user_id',
-        filters: {'owner_user_id': uid, 'recipient_user_id': recipientUserId},
-      );
-      if (existing != null) {
+      final existing = await SupabaseConfig.client
+          .from('user_recipients')
+          .select('owner_user_id, recipient_user_id')
+          .eq('owner_user_id', uid)
+          .eq('recipient_user_id', recipientUserId)
+          .maybeSingle();
+      if (existing != null && existing.isNotEmpty) {
         return const AddRecipientResult(success: false, message: 'Recipient already added.');
       }
 
-      final inserted = await SupabaseService.insert(
-        'user_recipients',
-        {'owner_user_id': uid, 'recipient_user_id': recipientUserId},
-      );
+      final inserted = await SupabaseConfig.client
+          .from('user_recipients')
+          .insert({'owner_user_id': uid, 'recipient_user_id': recipientUserId})
+          .select();
 
       final row = inserted.isNotEmpty ? inserted.first : <String, dynamic>{};
 

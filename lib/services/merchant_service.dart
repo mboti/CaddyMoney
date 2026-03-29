@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:caddymoney/models/merchant_model.dart';
-import 'package:caddymoney/supabase/supabase_config.dart';
+import 'package:caddymoney/core/config/supabase_config.dart';
 
 class MerchantService {
   Future<MerchantModel?> getMyMerchant() async {
