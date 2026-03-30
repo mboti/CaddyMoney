@@ -222,7 +222,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
     if (!mounted) return;
     if (created == true) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Administrator created. You can now sign in.')),
+        const SnackBar(content: Text('Administrator created (or repaired). You can now sign in.')),
       );
     }
   }

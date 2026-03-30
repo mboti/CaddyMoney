@@ -53,6 +53,13 @@ class AuthService {
           'error': 'Profile not found. Please contact support or try again.',
         };
       }
+
+      // If the user is a merchant and email confirmations are enabled, the merchant
+      // row may not have been created at signup time (because there was no session).
+      // Repair it on first successful sign-in.
+      if (profile.role == AppRole.merchant) {
+        await _ensureMerchantRowExistsFromAuthMetadata();
+      }
       return {'success': true, 'profile': profile};
     } on AuthException catch (e) {
       debugPrint('Auth error: ${e.message}');
@@ -130,6 +137,16 @@ class AuthService {
           'full_name': ownerName,
           'phone': phone,
           'role': AppRole.merchant.toJson(),
+          // Store merchant application fields in auth metadata so we can create the
+          // merchants row after email confirmation (when a session exists).
+          'merchant_business_name': businessName,
+          'merchant_owner_name': ownerName,
+          'merchant_business_email': cleanedEmail,
+          'merchant_business_phone': phone,
+          'merchant_business_category': businessCategory,
+          'merchant_address_line1': address,
+          'merchant_city': city,
+          'merchant_country_code': country,
         },
       );
 
@@ -137,20 +154,27 @@ class AuthService {
         return {'success': false, 'error': 'Merchant registration failed'};
       }
 
-      final merchantData = {
-        'profile_id': authResponse.user!.id,
-        'business_name': businessName,
-        'owner_name': ownerName,
-        'business_email': cleanedEmail,
-        'business_phone': phone,
-        'business_category': businessCategory,
-        'address_line1': address,
-        'city': city,
-        'country_code': country,
-        'status': 'pending',
-      };
-
-      await _supabase.from('merchants').insert(merchantData);
+      // If email confirmations are enabled, signUp returns no session until the user
+      // confirms their email. Without a session, the client is effectively anon and
+      // cannot insert into protected tables (permission denied).
+      //
+      // In that case, we defer creating the merchants row until the first sign-in
+      // after confirmation (see _ensureMerchantRowExistsFromAuthMetadata()).
+      if (authResponse.session != null) {
+        final merchantData = {
+          'profile_id': authResponse.user!.id,
+          'business_name': businessName,
+          'owner_name': ownerName,
+          'business_email': cleanedEmail,
+          'business_phone': phone,
+          'business_category': businessCategory,
+          'address_line1': address,
+          'city': city,
+          'country_code': country,
+          'status': 'pending',
+        };
+        await _supabase.from('merchants').insert(merchantData);
+      }
 
       final needsEmailConfirmation = authResponse.session == null;
       return {
@@ -165,6 +189,42 @@ class AuthService {
     } catch (e) {
       debugPrint('Merchant registration error: $e');
       return {'success': false, 'error': 'An error occurred during registration'};
+    }
+  }
+
+  Future<void> _ensureMerchantRowExistsFromAuthMetadata() async {
+    try {
+      final user = currentUser;
+      if (user == null) return;
+
+      final existing = await SupabaseService.selectSingle('merchants', filters: {'profile_id': user.id});
+      if (existing != null) return;
+
+      final md = user.userMetadata ?? const <String, dynamic>{};
+      final merchantData = {
+        'profile_id': user.id,
+        'business_name': (md['merchant_business_name'] ?? '').toString().trim(),
+        'owner_name': (md['merchant_owner_name'] ?? md['full_name'] ?? '').toString().trim(),
+        'business_email': (md['merchant_business_email'] ?? user.email ?? '').toString().trim().toLowerCase(),
+        'business_phone': md['merchant_business_phone'],
+        'business_category': md['merchant_business_category'],
+        'address_line1': md['merchant_address_line1'],
+        'city': md['merchant_city'],
+        'country_code': md['merchant_country_code'],
+        'status': 'pending',
+      };
+
+      // Don't attempt an insert if we have no meaningful merchant name; this keeps
+      // the table clean in case metadata is missing.
+      if ((merchantData['business_name'] as String).isEmpty) {
+        debugPrint('Merchant metadata missing business_name; skipping merchants row creation.');
+        return;
+      }
+
+      await SupabaseService.insert('merchants', merchantData);
+    } catch (e) {
+      // Sign-in should still succeed even if this repair fails.
+      debugPrint('Failed to ensure merchant row exists: $e');
     }
   }
 

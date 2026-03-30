@@ -77,7 +77,7 @@ class AuthProvider with ChangeNotifier {
     final role = _currentUser?.role;
     if (role == requiredRole) return true;
 
-    _error = 'Unauthorized for ${requiredRole.displayName}';
+    _error = 'Unauthorized for ${requiredRole.displayName}. Your account role is: ${role?.displayName ?? 'unknown'}';
     try {
       await _authService.signOut();
     } catch (e) {

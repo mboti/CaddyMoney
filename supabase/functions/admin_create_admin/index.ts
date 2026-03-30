@@ -109,12 +109,49 @@ serve(async (req) => {
       user_metadata: { full_name: fullName, role: "admin" },
     });
 
-    if (createRes.error) {
-      return json(400, { success: false, error: createRes.error.message });
+  // If the user already exists (e.g., created manually in Supabase Auth), we can still
+  // "repair" access by upserting their profile role to admin.
+  if (createRes.error) {
+    const msg = (createRes.error.message ?? "").toLowerCase();
+    const looksLikeDuplicate = msg.includes("already") || msg.includes("registered") || msg.includes("exists");
+    if (!looksLikeDuplicate) return json(400, { success: false, error: createRes.error.message });
+
+    const existingProfileRes = await service
+      .from("profiles")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (existingProfileRes.error) {
+      return json(500, { success: false, error: "User exists, but failed to read profile" });
+    }
+    if (!existingProfileRes.data?.id) {
+      return json(409, {
+        success: false,
+        error:
+          "User already exists in Auth, but no profile row was found. Create a profile row for this user, then re-run bootstrap.",
+      });
     }
 
-    const newUser = createRes.data.user;
-    if (!newUser) return json(500, { success: false, error: "User creation failed" });
+    const now = new Date().toISOString();
+    const repairRes = await service.from("profiles").upsert({
+      id: existingProfileRes.data.id,
+      email,
+      full_name: fullName,
+      role: "admin",
+      status: "active",
+      updated_at: now,
+    });
+
+    if (repairRes.error) {
+      return json(500, { success: false, error: `Failed to repair profile role: ${repairRes.error.message}` });
+    }
+
+    return json(200, { success: true, user_id: existingProfileRes.data.id, repaired: true, authorized_by: authorizedBy });
+  }
+
+  const newUser = createRes.data.user;
+  if (!newUser) return json(500, { success: false, error: "User creation failed" });
 
     // Ensure profile exists / is correct.
     // (If you already have an auth trigger creating profiles, this upsert will be idempotent.)
