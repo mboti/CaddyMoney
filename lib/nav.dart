@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'package:caddymoney/screens/splash_screen.dart';
 import 'package:caddymoney/screens/role_selection_screen.dart';
 import 'package:caddymoney/screens/auth/user_auth_screen.dart';
@@ -7,6 +9,7 @@ import 'package:caddymoney/screens/auth/merchant_auth_screen.dart';
 import 'package:caddymoney/screens/auth/admin_login_screen.dart';
 import 'package:caddymoney/screens/user/user_home_screen.dart';
 import 'package:caddymoney/screens/merchant/merchant_dashboard_screen.dart';
+import 'package:caddymoney/screens/merchant/merchant_onboarding_kyc_screen.dart';
 import 'package:caddymoney/screens/admin/admin_dashboard_screen.dart';
 import 'package:caddymoney/screens/settings_screen.dart';
 import 'package:caddymoney/screens/settings/payment_methods_screen.dart';
@@ -14,10 +17,57 @@ import 'package:caddymoney/screens/user/profile_screen.dart';
 import 'package:caddymoney/screens/user/receive_money_screen.dart';
 import 'package:caddymoney/screens/user/send_money_screen.dart';
 import 'package:caddymoney/screens/user/transactions_screen.dart';
+import 'package:caddymoney/providers/auth_provider.dart';
+import 'package:caddymoney/core/enums/app_role.dart';
+import 'package:caddymoney/core/config/supabase_config.dart';
 
 class AppRouter {
   static final GoRouter router = GoRouter(
     initialLocation: AppRoutes.splash,
+    refreshListenable: _AuthRefreshListenable(),
+    redirect: (context, state) {
+      final auth = context.read<AuthProvider>();
+      final location = state.matchedLocation;
+
+      final isMerchant = auth.userRole == AppRole.merchant;
+      final isAuthed = auth.isAuthenticated;
+
+      // Public routes that must remain accessible even when unauthenticated.
+      final isPublicRoute = location == AppRoutes.splash ||
+          location == AppRoutes.roleSelection ||
+          location == AppRoutes.userAuth ||
+          location == AppRoutes.merchantAuth ||
+          location == AppRoutes.adminLogin;
+
+      // Require login for role-protected areas.
+      final isMerchantArea = location.startsWith('/merchant');
+      final isUserArea = location.startsWith('/user') ||
+          location == AppRoutes.sendMoney ||
+          location == AppRoutes.receiveMoney ||
+          location == AppRoutes.transactions ||
+          location == AppRoutes.profile;
+      final isAdminArea = location.startsWith('/admin') || location == AppRoutes.adminDashboard;
+
+      if (!isAuthed && !isPublicRoute && (isMerchantArea || isUserArea || isAdminArea)) {
+        return AppRoutes.roleSelection;
+      }
+
+      // Merchant access restriction: until KYC is complete AND verified.
+      if (isMerchant && isAuthed) {
+        final isOnboarding = location == AppRoutes.merchantOnboarding;
+        final isAuthScreen = location == AppRoutes.merchantAuth;
+
+        // If merchant is not fully verified, force onboarding.
+        if (!auth.merchantHasFullAccess) {
+          if (!isOnboarding && !isAuthScreen) return AppRoutes.merchantOnboarding;
+        } else {
+          // If verified, keep them out of onboarding.
+          if (isOnboarding) return AppRoutes.merchantDashboard;
+        }
+      }
+
+      return null;
+    },
     routes: [
       GoRoute(
         path: AppRoutes.splash,
@@ -66,6 +116,13 @@ class AppRouter {
         name: 'merchant-dashboard',
         pageBuilder: (context, state) => const NoTransitionPage(
           child: MerchantDashboardScreen(),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.merchantOnboarding,
+        name: 'merchant-onboarding',
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: MerchantOnboardingKycScreen(),
         ),
       ),
       GoRoute(
@@ -131,6 +188,7 @@ class AppRoutes {
   static const String adminLogin = '/admin-login';
   static const String userHome = '/user-home';
   static const String merchantDashboard = '/merchant-dashboard';
+  static const String merchantOnboarding = '/merchant-onboarding';
   static const String adminDashboard = '/admin-dashboard';
   static const String settings = '/settings';
   static const String paymentMethods = '/payment-methods';
@@ -138,4 +196,18 @@ class AppRoutes {
   static const String receiveMoney = '/receive-money';
   static const String transactions = '/transactions';
   static const String profile = '/profile';
+}
+
+class _AuthRefreshListenable extends ChangeNotifier {
+  _AuthRefreshListenable() {
+    _sub = SupabaseConfig.client.auth.onAuthStateChange.listen((_) => notifyListeners());
+  }
+
+  late final StreamSubscription _sub;
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
 }

@@ -113,12 +113,15 @@ class AuthService {
     required String email,
     required String password,
     required String businessName,
-    required String ownerName,
-    String? phone,
-    String? businessCategory,
-    String? address,
-    String? city,
-    String? country,
+    required String firstName,
+    required String lastName,
+    required String phone,
+    required String addressLine1,
+    String? addressLine2,
+    required String city,
+    required String postalCode,
+    required String countryName,
+    required List<String> categories,
   }) async {
     try {
       final cleanedEmail = _cleanEmail(email);
@@ -127,7 +130,7 @@ class AuthService {
         email: cleanedEmail,
         password: cleanedPassword,
         data: {
-          'full_name': ownerName,
+          'full_name': '$firstName $lastName'.trim(),
           'phone': phone,
           'role': AppRole.merchant.toJson(),
         },
@@ -140,14 +143,18 @@ class AuthService {
       final merchantData = {
         'profile_id': authResponse.user!.id,
         'business_name': businessName,
-        'owner_name': ownerName,
+        'owner_first_name': firstName,
+        'owner_last_name': lastName,
         'business_email': cleanedEmail,
         'business_phone': phone,
-        'business_category': businessCategory,
-        'address_line1': address,
+        'categories': categories,
+        'address_line1': addressLine1,
+        'address_line2': addressLine2,
         'city': city,
-        'country_code': country,
+        'postal_code': postalCode,
+        'country_name': countryName,
         'status': 'pending',
+        'profile_completed': false,
       };
 
       await _supabase.from('merchants').insert(merchantData);

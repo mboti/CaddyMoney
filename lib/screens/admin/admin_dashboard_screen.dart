@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 import 'package:caddymoney/theme.dart';
 import 'package:caddymoney/core/theme/app_colors.dart';
 import 'package:caddymoney/core/utils/app_localizations_temp.dart';
+import 'package:caddymoney/services/merchant_service.dart';
+import 'package:caddymoney/models/merchant_model.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
@@ -108,23 +110,72 @@ class AdminDashboardScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
-              MerchantApprovalItem(
-                businessName: 'Tech Store Inc.',
-                ownerName: 'John Doe',
-                category: 'Technology',
-                submittedDate: '2 hours ago',
-              ),
-              MerchantApprovalItem(
-                businessName: 'Fresh Bakery',
-                ownerName: 'Jane Smith',
-                category: 'Food & Beverage',
-                submittedDate: '1 day ago',
-              ),
+              const _PendingMerchantsPanel(),
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+class _PendingMerchantsPanel extends StatefulWidget {
+  const _PendingMerchantsPanel();
+
+  @override
+  State<_PendingMerchantsPanel> createState() => _PendingMerchantsPanelState();
+}
+
+class _PendingMerchantsPanelState extends State<_PendingMerchantsPanel> {
+  final _service = MerchantService();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<MerchantModel>>(
+      future: _service.listMerchants(status: 'pending', limit: 20),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final items = snap.data ?? [];
+        if (items.isEmpty) {
+          return Text(
+            'No pending requests right now.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          );
+        }
+
+        return Column(
+          children: items.map((m) {
+            final owner = [m.ownerFirstName, m.ownerLastName].whereType<String>().where((e) => e.trim().isNotEmpty).join(' ');
+            final categories = m.categories.isNotEmpty
+                ? m.categories.join(', ')
+                : (m.businessCategory ?? '');
+            return Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: MerchantApprovalItem(
+                businessName: m.businessName,
+                ownerName: owner.isNotEmpty ? owner : (m.ownerName ?? '—'),
+                category: categories.isNotEmpty ? categories : '—',
+                submittedDate: _relativeTime(m.createdAt),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  String _relativeTime(DateTime date) {
+    final diff = DateTime.now().difference(date);
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return '${diff.inHours} hours ago';
+    return '${diff.inDays} days ago';
   }
 }
 

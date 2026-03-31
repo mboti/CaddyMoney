@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:caddymoney/models/merchant_model.dart';
 import 'package:caddymoney/core/config/supabase_config.dart';
+import 'package:file_selector/file_selector.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class MerchantService {
   Future<MerchantModel?> getMyMerchant() async {
@@ -116,6 +118,79 @@ class MerchantService {
     } catch (e) {
       debugPrint('MerchantService.rejectMerchant failed: $e');
       return false;
+    }
+  }
+
+  Future<bool> updateMyMerchantKyc({
+    required String businessType,
+    required String registrationNumber,
+    String? vatNumber,
+    required DateTime dateOfBirth,
+    required String nationality,
+    required String iban,
+    required String accountHolderName,
+    required String customerSupportAddress,
+    required List<String> categories,
+    required bool smsVerified,
+    String? idDocumentPath,
+    String? proofOfAddressPath,
+    String? businessRegistrationDocPath,
+  }) async {
+    try {
+      final uid = SupabaseConfig.auth.currentUser?.id;
+      if (uid == null) return false;
+
+      await SupabaseService.update(
+        'merchants',
+        {
+          'business_type': businessType,
+          'registration_number': registrationNumber,
+          'vat_number': vatNumber,
+          'date_of_birth': dateOfBirth.toIso8601String(),
+          'nationality': nationality,
+          'iban': iban,
+          'account_holder_name': accountHolderName,
+          'customer_support_address': customerSupportAddress,
+          'categories': categories,
+          'sms_verified': smsVerified,
+          'id_document_path': idDocumentPath,
+          'proof_of_address_path': proofOfAddressPath,
+          'business_registration_doc_path': businessRegistrationDocPath,
+          'profile_completed': true,
+          'profile_completed_at': DateTime.now().toIso8601String(),
+        },
+        filters: {'profile_id': uid},
+      );
+      return true;
+    } catch (e) {
+      debugPrint('MerchantService.updateMyMerchantKyc failed: $e');
+      return false;
+    }
+  }
+
+  Future<String?> uploadMerchantDocument({
+    required String docType,
+    required XFile file,
+  }) async {
+    try {
+      final uid = SupabaseConfig.auth.currentUser?.id;
+      if (uid == null) return null;
+
+      final bytes = await file.readAsBytes();
+      final name = file.name;
+      final safeName = name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+      final path = 'merchant/$uid/$docType/${DateTime.now().millisecondsSinceEpoch}_$safeName';
+
+      await SupabaseConfig.client.storage.from('kyc-docs').uploadBinary(
+            path,
+            bytes,
+            fileOptions: FileOptions(upsert: true),
+          );
+
+      return path;
+    } catch (e) {
+      debugPrint('MerchantService.uploadMerchantDocument failed: $e');
+      return null;
     }
   }
 }

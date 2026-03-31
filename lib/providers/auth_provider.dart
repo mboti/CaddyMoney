@@ -3,19 +3,33 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:caddymoney/models/user_model.dart';
 import 'package:caddymoney/services/auth_service.dart';
 import 'package:caddymoney/core/enums/app_role.dart';
+import 'package:caddymoney/models/merchant_model.dart';
+import 'package:caddymoney/services/merchant_service.dart';
+import 'package:caddymoney/core/enums/merchant_status.dart';
 
 class AuthProvider with ChangeNotifier {
   final AuthService _authService = AuthService();
+  final MerchantService _merchantService = MerchantService();
   
   UserModel? _currentUser;
+  MerchantModel? _currentMerchant;
   bool _isLoading = false;
   String? _error;
 
   UserModel? get currentUser => _currentUser;
+  MerchantModel? get currentMerchant => _currentMerchant;
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get isAuthenticated => _currentUser != null;
   AppRole? get userRole => _currentUser?.role;
+
+  /// Full access means: Step 2 completed + admin verified.
+  bool get merchantHasFullAccess {
+    if (userRole != AppRole.merchant) return true;
+    final m = _currentMerchant;
+    if (m == null) return false;
+    return m.profileCompleted == true && m.status == MerchantStatus.approved;
+  }
 
   AuthProvider() {
     _init();
@@ -37,9 +51,24 @@ class AuthProvider with ChangeNotifier {
   Future<void> _loadCurrentUser() async {
     try {
       _currentUser = await _authService.getCurrentUserProfile();
+      if (_currentUser?.role == AppRole.merchant) {
+        _currentMerchant = await _merchantService.getMyMerchant();
+      } else {
+        _currentMerchant = null;
+      }
       notifyListeners();
     } catch (e) {
       debugPrint('Error loading current user: $e');
+    }
+  }
+
+  Future<void> refreshMerchant() async {
+    if (userRole != AppRole.merchant) return;
+    try {
+      _currentMerchant = await _merchantService.getMyMerchant();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('AuthProvider.refreshMerchant failed: $e');
     }
   }
 
@@ -141,12 +170,15 @@ class AuthProvider with ChangeNotifier {
     required String email,
     required String password,
     required String businessName,
-    required String ownerName,
-    String? phone,
-    String? businessCategory,
-    String? address,
-    String? city,
-    String? country,
+    required String firstName,
+    required String lastName,
+    required String phone,
+    required String addressLine1,
+    String? addressLine2,
+    required String city,
+    required String postalCode,
+    required String countryName,
+    required List<String> categories,
   }) async {
     _isLoading = true;
     _error = null;
@@ -156,12 +188,15 @@ class AuthProvider with ChangeNotifier {
       email: email,
       password: password,
       businessName: businessName,
-      ownerName: ownerName,
+      firstName: firstName,
+      lastName: lastName,
       phone: phone,
-      businessCategory: businessCategory,
-      address: address,
+      addressLine1: addressLine1,
+      addressLine2: addressLine2,
       city: city,
-      country: country,
+      postalCode: postalCode,
+      countryName: countryName,
+      categories: categories,
     );
 
     _isLoading = false;
@@ -198,6 +233,7 @@ class AuthProvider with ChangeNotifier {
   Future<void> signOut() async {
     await _authService.signOut();
     _currentUser = null;
+    _currentMerchant = null;
     notifyListeners();
   }
 

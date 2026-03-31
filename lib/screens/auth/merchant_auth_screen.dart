@@ -15,38 +15,98 @@ class MerchantAuthScreen extends StatefulWidget {
   State<MerchantAuthScreen> createState() => _MerchantAuthScreenState();
 }
 
+class _CategoryMultiSelectField extends StatelessWidget {
+  final Set<String> selected;
+  final ValueChanged<Set<String>> onChanged;
+
+  const _CategoryMultiSelectField({required this.selected, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Categories', style: Theme.of(context).textTheme.labelLarge?.copyWith(color: cs.onSurfaceVariant)),
+        const SizedBox(height: AppSpacing.sm),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: AppConstants.businessCategories.map((c) {
+            final isSelected = selected.contains(c);
+            return FilterChip(
+              label: Text(c),
+              selected: isSelected,
+              selectedColor: cs.primaryContainer,
+              checkmarkColor: cs.primary,
+              onSelected: (v) {
+                final next = {...selected};
+                if (v) {
+                  next.add(c);
+                } else {
+                  next.remove(c);
+                }
+                onChanged(next);
+              },
+            );
+          }).toList(),
+        ),
+        if (selected.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            child: Text(
+              'Select at least one category',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.error),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _MerchantAuthScreenState extends State<MerchantAuthScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _businessNameController = TextEditingController();
-  final _ownerNameController = TextEditingController();
+  final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _addressController = TextEditingController();
+  final _addressLine1Controller = TextEditingController();
+  final _addressLine2Controller = TextEditingController();
   final _cityController = TextEditingController();
+  final _postalCodeController = TextEditingController();
+  final _countryController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   
   bool _isSignIn = true;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
-  String? _selectedCategory;
-  String? _selectedCountry;
+  final Set<String> _selectedCategories = {};
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
     _businessNameController.dispose();
-    _ownerNameController.dispose();
+    _firstNameController.dispose();
+    _lastNameController.dispose();
     _phoneController.dispose();
-    _addressController.dispose();
+    _addressLine1Controller.dispose();
+    _addressLine2Controller.dispose();
     _cityController.dispose();
+    _postalCodeController.dispose();
+    _countryController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
   }
 
   Future<void> _handleSubmit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!_isSignIn && _selectedCategories.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select at least one category.')));
+      return;
+    }
 
     final authProvider = context.read<AuthProvider>();
     bool success;
@@ -62,16 +122,20 @@ class _MerchantAuthScreenState extends State<MerchantAuthScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
         businessName: _businessNameController.text.trim(),
-        ownerName: _ownerNameController.text.trim(),
-        phone: _phoneController.text.trim().isNotEmpty ? _phoneController.text.trim() : null,
-        businessCategory: _selectedCategory,
-        address: _addressController.text.trim().isNotEmpty ? _addressController.text.trim() : null,
-        city: _cityController.text.trim().isNotEmpty ? _cityController.text.trim() : null,
-        country: _selectedCountry,
+        firstName: _firstNameController.text.trim(),
+        lastName: _lastNameController.text.trim(),
+        phone: _phoneController.text.trim(),
+        addressLine1: _addressLine1Controller.text.trim(),
+        addressLine2: _addressLine2Controller.text.trim().isNotEmpty ? _addressLine2Controller.text.trim() : null,
+        city: _cityController.text.trim(),
+        postalCode: _postalCodeController.text.trim(),
+        countryName: _countryController.text.trim(),
+        categories: _selectedCategories.toList(),
       );
     }
 
     if (success && mounted) {
+      // Router will redirect merchants without full access to onboarding.
       context.go('/merchant-dashboard');
       return;
     }
@@ -141,18 +205,36 @@ class _MerchantAuthScreenState extends State<MerchantAuthScreen> {
                     },
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  TextFormField(
-                    controller: _ownerNameController,
-                    decoration: InputDecoration(
-                      labelText: l10n.ownerName,
-                      prefixIcon: const Icon(Icons.person_outline),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return l10n.requiredField;
-                      }
-                      return null;
-                    },
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _firstNameController,
+                          decoration: const InputDecoration(
+                            labelText: 'First name',
+                            prefixIcon: Icon(Icons.person_outline),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) return l10n.requiredField;
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _lastNameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Last name',
+                            prefixIcon: Icon(Icons.person_outline),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) return l10n.requiredField;
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: AppSpacing.md),
                   TextFormField(
@@ -162,25 +244,35 @@ class _MerchantAuthScreenState extends State<MerchantAuthScreen> {
                       prefixIcon: const Icon(Icons.phone_outlined),
                     ),
                     keyboardType: TextInputType.phone,
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return l10n.requiredField;
+                      return null;
+                    },
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  DropdownButtonFormField<String>(
-                    value: _selectedCategory,
-                    decoration: InputDecoration(
-                      labelText: l10n.category,
-                      prefixIcon: const Icon(Icons.category_outlined),
-                    ),
-                    items: AppConstants.businessCategories.map((category) {
-                      return DropdownMenuItem(value: category, child: Text(category));
-                    }).toList(),
-                    onChanged: (value) => setState(() => _selectedCategory = value),
+                  _CategoryMultiSelectField(
+                    selected: _selectedCategories,
+                    onChanged: (next) => setState(() {
+                      _selectedCategories
+                        ..clear()
+                        ..addAll(next);
+                    }),
                   ),
                   const SizedBox(height: AppSpacing.md),
                   TextFormField(
-                    controller: _addressController,
-                    decoration: InputDecoration(
-                      labelText: '${l10n.address} (${l10n.optional})',
-                      prefixIcon: const Icon(Icons.location_on_outlined),
+                    controller: _addressLine1Controller,
+                    decoration: const InputDecoration(
+                      labelText: 'Address line',
+                      prefixIcon: Icon(Icons.location_on_outlined),
+                    ),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? l10n.requiredField : null,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  TextFormField(
+                    controller: _addressLine2Controller,
+                    decoration: const InputDecoration(
+                      labelText: 'Address complement',
+                      prefixIcon: Icon(Icons.location_on_outlined),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.md),
@@ -189,26 +281,35 @@ class _MerchantAuthScreenState extends State<MerchantAuthScreen> {
                       Expanded(
                         child: TextFormField(
                           controller: _cityController,
-                          decoration: InputDecoration(
-                            labelText: '${l10n.city} (${l10n.optional})',
-                            prefixIcon: const Icon(Icons.location_city_outlined),
+                          decoration: const InputDecoration(
+                            labelText: 'City',
+                            prefixIcon: Icon(Icons.location_city_outlined),
                           ),
+                          validator: (v) => (v == null || v.trim().isEmpty) ? l10n.requiredField : null,
                         ),
                       ),
                       const SizedBox(width: AppSpacing.md),
                       Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: _selectedCountry,
-                          decoration: InputDecoration(
-                            labelText: '${l10n.country} (${l10n.optional})',
+                        child: TextFormField(
+                          controller: _postalCodeController,
+                          decoration: const InputDecoration(
+                            labelText: 'Postal code',
+                            prefixIcon: Icon(Icons.local_post_office_outlined),
                           ),
-                          items: ['FR', 'US', 'GB', 'DE', 'ES', 'IT'].map((country) {
-                            return DropdownMenuItem(value: country, child: Text(country));
-                          }).toList(),
-                          onChanged: (value) => setState(() => _selectedCountry = value),
+                          validator: (v) => (v == null || v.trim().isEmpty) ? l10n.requiredField : null,
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  TextFormField(
+                    controller: _countryController,
+                    decoration: const InputDecoration(
+                      labelText: 'Country',
+                      helperText: 'Use full name (e.g., France, United States)',
+                      prefixIcon: Icon(Icons.public_outlined),
+                    ),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? l10n.requiredField : null,
                   ),
                   const SizedBox(height: AppSpacing.md),
                 ],
