@@ -157,7 +157,30 @@ class AuthService {
         'profile_completed': false,
       };
 
-      await _supabase.from('merchants').insert(merchantData);
+      // IMPORTANT: When email confirmations are enabled in Supabase Auth,
+      // signUp() returns `session == null` until the user confirms.
+      // That means client-side inserts into RLS-protected tables often fail.
+      // We create the pending merchant row server-side via an Edge Function.
+      try {
+        final res = await _supabase.functions.invoke(
+          'merchant_create_pending',
+          body: merchantData,
+        );
+
+        final data = res.data;
+        if (data is Map && data['success'] == true) {
+          // ok
+        } else if (data is Map && data['error'] != null) {
+          debugPrint('merchant_create_pending returned error: ${data['error']}');
+        } else {
+          debugPrint('merchant_create_pending returned unexpected payload: $data');
+        }
+      } on FunctionException catch (e) {
+        // Non-fatal: the auth user may still have been created successfully.
+        debugPrint('merchant_create_pending function error: ${e.toString()}');
+      } catch (e) {
+        debugPrint('merchant_create_pending unknown error: $e');
+      }
 
       final needsEmailConfirmation = authResponse.session == null;
       return {
@@ -175,18 +198,26 @@ class AuthService {
     }
   }
 
-  Future<bool> resendSignupConfirmationEmail(String email) async {
+  Future<Map<String, dynamic>> resendSignupConfirmationEmail(String email) async {
     try {
       final cleanedEmail = _cleanEmail(email);
       await _supabase.auth.resend(type: OtpType.signup, email: cleanedEmail);
-      return true;
+      return {'success': true};
     } on AuthException catch (e) {
       debugPrint('Resend confirmation auth error: ${e.message}');
-      return false;
+      return {'success': false, 'error': _mapAuthException(e.message)};
     } catch (e) {
       debugPrint('Resend confirmation error: $e');
-      return false;
+      return {'success': false, 'error': 'Failed to resend confirmation email'};
     }
+  }
+
+  String _mapAuthException(String message) {
+    final m = message.toLowerCase();
+    if (m.contains('rate limit') || m.contains('too many requests')) {
+      return 'Too many attempts. Please wait a bit and try again.';
+    }
+    return message;
   }
 
   String _cleanEmail(String input) => input.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');

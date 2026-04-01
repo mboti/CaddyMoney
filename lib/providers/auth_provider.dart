@@ -223,9 +223,10 @@ class AuthProvider with ChangeNotifier {
     _error = null;
     notifyListeners();
 
-    final ok = await _authService.resendSignupConfirmationEmail(email);
+    final res = await _authService.resendSignupConfirmationEmail(email);
     _isLoading = false;
-    if (!ok) _error = 'Failed to resend confirmation email';
+    final ok = res['success'] == true;
+    if (!ok) _error = (res['error'] ?? 'Failed to resend confirmation email').toString();
     notifyListeners();
     return ok;
   }

@@ -57,6 +57,7 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
   bool _prefillLoaded = false;
 
   static const _prefsKey = 'merchant_kyc_draft_v1';
+  static const _step1DraftPrefsKey = 'merchant_step1_draft_v1';
 
   @override
   void initState() {
@@ -129,6 +130,30 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
       _categories = {...m.categories};
     }
 
+    // If the merchant row isn't available/readable yet, fall back to Step 1 local draft.
+    try {
+      if (_businessNameController.text.trim().isEmpty || _emailController.text.trim().isEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        final raw = prefs.getString(_step1DraftPrefsKey);
+        if (raw != null && raw.isNotEmpty) {
+          final d = MerchantStep1Draft.decode(raw);
+          if (_businessNameController.text.trim().isEmpty) _businessNameController.text = d.businessName ?? '';
+          if (_firstNameController.text.trim().isEmpty) _firstNameController.text = d.firstName ?? '';
+          if (_lastNameController.text.trim().isEmpty) _lastNameController.text = d.lastName ?? '';
+          if (_phoneController.text.trim().isEmpty) _phoneController.text = d.phone ?? '';
+          if (_emailController.text.trim().isEmpty) _emailController.text = d.email ?? '';
+          if (_addressLine1Controller.text.trim().isEmpty) _addressLine1Controller.text = d.addressLine1 ?? '';
+          if (_addressLine2Controller.text.trim().isEmpty) _addressLine2Controller.text = d.addressLine2 ?? '';
+          if (_cityController.text.trim().isEmpty) _cityController.text = d.city ?? '';
+          if (_postalCodeController.text.trim().isEmpty) _postalCodeController.text = d.postalCode ?? '';
+          if (_countryController.text.trim().isEmpty) _countryController.text = d.countryName ?? '';
+          if (_categories.isEmpty && d.categories.isNotEmpty) _categories = {...d.categories};
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to load merchant step1 draft: $e');
+    }
+
     // Then apply any local autosave draft over it.
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -167,13 +192,38 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
 
   String _formatDate(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  bool _isPrefilledController(TextEditingController c) => c.text.trim().isNotEmpty;
+  bool _hasValue(TextEditingController c) => c.text.trim().isNotEmpty;
 
-  InputDecoration _prefilledDecoration(BuildContext context, InputDecoration base) {
+  /// Step 1 shared fields:
+  /// - If we already have a value: lock the field and show a green “completed” highlight.
+  /// - If we don't: allow the merchant to fill it here (still treated as Step 1 shared).
+  ///
+  /// Important: we use `readOnly` instead of `enabled: false` because disabled
+  /// fields often render their text with low-contrast “disabled” colors.
+  bool _sharedFieldReadOnly(TextEditingController c) => _hasValue(c);
+
+  TextStyle _sharedFieldTextStyle(BuildContext context) => TextStyle(color: Theme.of(context).colorScheme.onSurface);
+
+  InputDecoration _sharedCompletedDecoration(BuildContext context, InputDecoration base, {required bool completed}) {
     final cs = Theme.of(context).colorScheme;
+    if (!completed) return base;
+
+    final success = cs.tertiary;
+    final successFill = cs.tertiaryContainer.withValues(alpha: 0.22);
+    final outline = success.withValues(alpha: 0.45);
+
+    OutlineInputBorder border(double width) => OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          borderSide: BorderSide(color: outline, width: width),
+        );
+
     return base.copyWith(
       filled: true,
-      fillColor: cs.primaryContainer.withValues(alpha: 0.35),
+      fillColor: successFill,
+      suffixIcon: Icon(Icons.verified_rounded, color: success),
+      disabledBorder: border(1.2),
+      enabledBorder: border(1.2),
+      focusedBorder: border(2),
     );
   }
 
@@ -355,11 +405,14 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
                           const SizedBox(height: AppSpacing.md),
                           TextFormField(
                             controller: _businessNameController,
-                            enabled: false,
-                            decoration: _prefilledDecoration(
+                            readOnly: _sharedFieldReadOnly(_businessNameController),
+                            style: _sharedFieldTextStyle(context),
+                            decoration: _sharedCompletedDecoration(
                               context,
                               const InputDecoration(labelText: 'Legal business name', prefixIcon: Icon(Icons.business_outlined)),
+                              completed: _hasValue(_businessNameController),
                             ),
+                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
                           ),
                           const SizedBox(height: AppSpacing.md),
                           TextFormField(
@@ -374,7 +427,13 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
                             city: _cityController,
                             postalCode: _postalCodeController,
                             country: _countryController,
-                            prefilledDecoration: (d) => _prefilledDecoration(context, d),
+                            readOnlyLine1: _sharedFieldReadOnly(_addressLine1Controller),
+                            readOnlyLine2: _sharedFieldReadOnly(_addressLine2Controller),
+                            readOnlyCity: _sharedFieldReadOnly(_cityController),
+                            readOnlyPostalCode: _sharedFieldReadOnly(_postalCodeController),
+                            readOnlyCountry: _sharedFieldReadOnly(_countryController),
+                            style: _sharedFieldTextStyle(context),
+                            decorate: (d, completed) => _sharedCompletedDecoration(context, d, completed: completed),
                           ),
                           const SizedBox(height: AppSpacing.md),
                           TextFormField(
@@ -396,22 +455,28 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
                               Expanded(
                                 child: TextFormField(
                                   controller: _firstNameController,
-                                  enabled: false,
-                                  decoration: _prefilledDecoration(
+                                  readOnly: _sharedFieldReadOnly(_firstNameController),
+                                  style: _sharedFieldTextStyle(context),
+                                  decoration: _sharedCompletedDecoration(
                                     context,
                                     const InputDecoration(labelText: 'First name', prefixIcon: Icon(Icons.person_outline)),
+                                    completed: _hasValue(_firstNameController),
                                   ),
+                                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
                                 ),
                               ),
                               const SizedBox(width: AppSpacing.md),
                               Expanded(
                                 child: TextFormField(
                                   controller: _lastNameController,
-                                  enabled: false,
-                                  decoration: _prefilledDecoration(
+                                  readOnly: _sharedFieldReadOnly(_lastNameController),
+                                  style: _sharedFieldTextStyle(context),
+                                  decoration: _sharedCompletedDecoration(
                                     context,
                                     const InputDecoration(labelText: 'Last name', prefixIcon: Icon(Icons.person_outline)),
+                                    completed: _hasValue(_lastNameController),
                                   ),
+                                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
                                 ),
                               ),
                             ],
@@ -475,20 +540,30 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
                           const SizedBox(height: AppSpacing.md),
                           TextFormField(
                             controller: _phoneController,
-                            enabled: false,
-                            decoration: _prefilledDecoration(
+                            readOnly: _sharedFieldReadOnly(_phoneController),
+                            style: _sharedFieldTextStyle(context),
+                            decoration: _sharedCompletedDecoration(
                               context,
                               const InputDecoration(labelText: 'Phone number', prefixIcon: Icon(Icons.phone_outlined)),
+                              completed: _hasValue(_phoneController),
                             ),
+                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
                           ),
                           const SizedBox(height: AppSpacing.md),
                           TextFormField(
                             controller: _emailController,
-                            enabled: false,
-                            decoration: _prefilledDecoration(
+                            readOnly: _sharedFieldReadOnly(_emailController),
+                            style: _sharedFieldTextStyle(context),
+                            decoration: _sharedCompletedDecoration(
                               context,
                               const InputDecoration(labelText: 'Professional email', prefixIcon: Icon(Icons.email_outlined)),
+                              completed: _hasValue(_emailController),
                             ),
+                            validator: (v) {
+                              if (v == null || v.trim().isEmpty) return 'Required';
+                              if (!v.contains('@')) return 'Invalid email';
+                              return null;
+                            },
                           ),
                           const SizedBox(height: AppSpacing.md),
                           TextFormField(
@@ -829,7 +904,13 @@ class _PrefilledAddressPanel extends StatelessWidget {
   final TextEditingController city;
   final TextEditingController postalCode;
   final TextEditingController country;
-  final InputDecoration Function(InputDecoration) prefilledDecoration;
+  final bool readOnlyLine1;
+  final bool readOnlyLine2;
+  final bool readOnlyCity;
+  final bool readOnlyPostalCode;
+  final bool readOnlyCountry;
+  final TextStyle style;
+  final InputDecoration Function(InputDecoration base, bool completed) decorate;
 
   const _PrefilledAddressPanel({
     required this.line1,
@@ -837,7 +918,13 @@ class _PrefilledAddressPanel extends StatelessWidget {
     required this.city,
     required this.postalCode,
     required this.country,
-    required this.prefilledDecoration,
+    required this.readOnlyLine1,
+    required this.readOnlyLine2,
+    required this.readOnlyCity,
+    required this.readOnlyPostalCode,
+    required this.readOnlyCountry,
+    required this.style,
+    required this.decorate,
   });
 
   @override
@@ -846,14 +933,23 @@ class _PrefilledAddressPanel extends StatelessWidget {
       children: [
         TextFormField(
           controller: line1,
-          enabled: false,
-          decoration: prefilledDecoration(const InputDecoration(labelText: 'Registered address line', prefixIcon: Icon(Icons.location_on_outlined))),
+          readOnly: readOnlyLine1,
+          style: style,
+          decoration: decorate(
+            const InputDecoration(labelText: 'Registered address line', prefixIcon: Icon(Icons.location_on_outlined)),
+            line1.text.trim().isNotEmpty,
+          ),
+          validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
         ),
         const SizedBox(height: AppSpacing.md),
         TextFormField(
           controller: line2,
-          enabled: false,
-          decoration: prefilledDecoration(const InputDecoration(labelText: 'Address complement', prefixIcon: Icon(Icons.location_on_outlined))),
+          readOnly: readOnlyLine2,
+          style: style,
+          decoration: decorate(
+            const InputDecoration(labelText: 'Address complement', prefixIcon: Icon(Icons.location_on_outlined)),
+            line2.text.trim().isNotEmpty,
+          ),
         ),
         const SizedBox(height: AppSpacing.md),
         Row(
@@ -861,16 +957,26 @@ class _PrefilledAddressPanel extends StatelessWidget {
             Expanded(
               child: TextFormField(
                 controller: city,
-                enabled: false,
-                decoration: prefilledDecoration(const InputDecoration(labelText: 'City', prefixIcon: Icon(Icons.location_city_outlined))),
+                readOnly: readOnlyCity,
+                style: style,
+                decoration: decorate(
+                  const InputDecoration(labelText: 'City', prefixIcon: Icon(Icons.location_city_outlined)),
+                  city.text.trim().isNotEmpty,
+                ),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
               ),
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: TextFormField(
                 controller: postalCode,
-                enabled: false,
-                decoration: prefilledDecoration(const InputDecoration(labelText: 'Postal code', prefixIcon: Icon(Icons.local_post_office_outlined))),
+                readOnly: readOnlyPostalCode,
+                style: style,
+                decoration: decorate(
+                  const InputDecoration(labelText: 'Postal code', prefixIcon: Icon(Icons.local_post_office_outlined)),
+                  postalCode.text.trim().isNotEmpty,
+                ),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
               ),
             ),
           ],
@@ -878,8 +984,13 @@ class _PrefilledAddressPanel extends StatelessWidget {
         const SizedBox(height: AppSpacing.md),
         TextFormField(
           controller: country,
-          enabled: false,
-          decoration: prefilledDecoration(const InputDecoration(labelText: 'Country', prefixIcon: Icon(Icons.public_outlined))),
+          readOnly: readOnlyCountry,
+          style: style,
+          decoration: decorate(
+            const InputDecoration(labelText: 'Country', prefixIcon: Icon(Icons.public_outlined)),
+            country.text.trim().isNotEmpty,
+          ),
+          validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
         ),
       ],
     );
@@ -943,6 +1054,53 @@ class MerchantKycDraft {
       customerSupportAddress: pick(7),
       categories: cats,
       smsVerified: sms,
+    );
+  }
+}
+
+class MerchantStep1Draft {
+  final String? businessName;
+  final String? firstName;
+  final String? lastName;
+  final String? phone;
+  final String? email;
+  final String? addressLine1;
+  final String? addressLine2;
+  final String? city;
+  final String? postalCode;
+  final String? countryName;
+  final List<String> categories;
+
+  MerchantStep1Draft({
+    required this.businessName,
+    required this.firstName,
+    required this.lastName,
+    required this.phone,
+    required this.email,
+    required this.addressLine1,
+    required this.addressLine2,
+    required this.city,
+    required this.postalCode,
+    required this.countryName,
+    required this.categories,
+  });
+
+  static MerchantStep1Draft decode(String raw) {
+    final parts = raw.split(';;');
+    String? pick(int i) => parts.length > i && parts[i].trim().isNotEmpty ? parts[i].trim() : null;
+    final cats = pick(10)?.split('|').where((e) => e.trim().isNotEmpty).toList() ?? <String>[];
+    return MerchantStep1Draft(
+      businessName: pick(0),
+      firstName: pick(1),
+      lastName: pick(2),
+      phone: pick(3),
+      email: pick(4),
+      addressLine1: pick(5),
+      addressLine2: pick(6),
+      city: pick(7),
+      postalCode: pick(8),
+      countryName: pick(9),
+      categories: cats,
     );
   }
 }

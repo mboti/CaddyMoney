@@ -32,37 +32,42 @@ class AppRouter {
       final isMerchant = auth.userRole == AppRole.merchant;
       final isAuthed = auth.isAuthenticated;
 
-      // Public routes that must remain accessible even when unauthenticated.
       final isPublicRoute = location == AppRoutes.splash ||
           location == AppRoutes.roleSelection ||
           location == AppRoutes.userAuth ||
           location == AppRoutes.merchantAuth ||
           location == AppRoutes.adminLogin;
 
-      // Require login for role-protected areas.
-      final isMerchantArea = location.startsWith('/merchant');
-      final isUserArea = location.startsWith('/user') ||
+      // Always allow public routes.
+      if (isPublicRoute) return null;
+
+      // Require login for protected areas.
+      // (Note: don't use naive startsWith('/merchant') because it matches '/merchant-auth'.)
+      final isMerchantProtected = location == AppRoutes.merchantDashboard || location == AppRoutes.merchantOnboarding;
+      final isUserProtected = location == AppRoutes.userHome ||
           location == AppRoutes.sendMoney ||
           location == AppRoutes.receiveMoney ||
           location == AppRoutes.transactions ||
-          location == AppRoutes.profile;
-      final isAdminArea = location.startsWith('/admin') || location == AppRoutes.adminDashboard;
+          location == AppRoutes.profile ||
+          location == AppRoutes.paymentMethods ||
+          location == AppRoutes.settings;
+      final isAdminProtected = location == AppRoutes.adminDashboard;
 
-      if (!isAuthed && !isPublicRoute && (isMerchantArea || isUserArea || isAdminArea)) {
+      if (!isAuthed && (isMerchantProtected || isUserProtected || isAdminProtected)) {
         return AppRoutes.roleSelection;
       }
 
       // Merchant access restriction: until KYC is complete AND verified.
       if (isMerchant && isAuthed) {
         final isOnboarding = location == AppRoutes.merchantOnboarding;
-        final isAuthScreen = location == AppRoutes.merchantAuth;
 
-        // If merchant is not fully verified, force onboarding.
-        if (!auth.merchantHasFullAccess) {
-          if (!isOnboarding && !isAuthScreen) return AppRoutes.merchantOnboarding;
-        } else {
-          // If verified, keep them out of onboarding.
-          if (isOnboarding) return AppRoutes.merchantDashboard;
+        // Only gate *merchant protected routes*.
+        if (isMerchantProtected) {
+          if (!auth.merchantHasFullAccess) {
+            if (!isOnboarding) return AppRoutes.merchantOnboarding;
+          } else {
+            if (isOnboarding) return AppRoutes.merchantDashboard;
+          }
         }
       }
 

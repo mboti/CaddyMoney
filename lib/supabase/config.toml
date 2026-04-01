@@ -1,0 +1,24 @@
+
+[functions.merchant_create_pending]
+enabled = true
+verify_jwt = true
+import_map = "./functions/merchant_create_pending/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/merchant_create_pending/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/merchant_create_pending/*.html" ]
+
+[functions.postal-cities]
+enabled = true
+# This function is called during merchant registration (user not authenticated yet).
+# If verify_jwt is true, Supabase rejects the request before your code runs.
+verify_jwt = false
+import_map = "./functions/postal-cities/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/postal-cities/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/postal-cities/*.html" ]
