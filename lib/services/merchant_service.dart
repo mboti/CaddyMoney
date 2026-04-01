@@ -123,7 +123,7 @@ class MerchantService {
 
   Future<bool> updateMyMerchantKyc({
     required String businessType,
-    required String registrationNumber,
+    String? registrationNumber,
     String? vatNumber,
     required DateTime dateOfBirth,
     required String nationality,

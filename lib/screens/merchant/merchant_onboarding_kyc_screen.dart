@@ -56,6 +56,8 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
 
   bool _prefillLoaded = false;
 
+  String _countryKey = '';
+
   static const _prefsKey = 'merchant_kyc_draft_v1';
   static const _step1DraftPrefsKey = 'merchant_step1_draft_v1';
 
@@ -63,6 +65,9 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
   void initState() {
     super.initState();
     _loadPrefill();
+
+    _countryKey = _normalizeCountryKey(_countryController.text);
+    _countryController.addListener(_handleCountryChanged);
 
     for (final c in [
       _businessTypeController,
@@ -104,6 +109,45 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
     _accountHolderController.dispose();
     _supportAddressController.dispose();
     super.dispose();
+  }
+
+  String _normalizeCountryKey(String input) {
+    var s = input.trim().toLowerCase();
+    // Minimal accent folding for our supported set.
+    s = s
+        .replaceAll('é', 'e')
+        .replaceAll('è', 'e')
+        .replaceAll('ê', 'e')
+        .replaceAll('ë', 'e')
+        .replaceAll('à', 'a')
+        .replaceAll('â', 'a')
+        .replaceAll('î', 'i')
+        .replaceAll('ï', 'i')
+        .replaceAll('ô', 'o')
+        .replaceAll('ù', 'u')
+        .replaceAll('û', 'u')
+        .replaceAll('ç', 'c');
+    return s;
+  }
+
+  List<String> _businessTypesForCountryKey(String key) {
+    final list = AppConstants.businessTypesByCountry[key];
+    if (list != null && list.isNotEmpty) return list;
+    return const ['LLC', 'Corporation', 'Sole proprietorship', 'Partnership', 'Other'];
+  }
+
+  void _handleCountryChanged() {
+    final nextKey = _normalizeCountryKey(_countryController.text);
+    if (nextKey == _countryKey) return;
+
+    final allowed = _businessTypesForCountryKey(nextKey);
+    final current = _businessTypeController.text.trim();
+    setState(() {
+      _countryKey = nextKey;
+      if (current.isNotEmpty && !allowed.contains(current)) {
+        _businessTypeController.clear();
+      }
+    });
   }
 
   Future<void> _loadPrefill() async {
@@ -278,7 +322,6 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
 
   bool _isFormCompleteForSubmit() {
     if (_businessTypeController.text.trim().isEmpty) return false;
-    if (_registrationNumberController.text.trim().isEmpty) return false;
     if (_dateOfBirth == null) return false;
     if (_nationalityController.text.trim().isEmpty) return false;
     if (_ibanController.text.trim().isEmpty) return false;
@@ -316,7 +359,7 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
 
       final ok = await _merchantService.updateMyMerchantKyc(
         businessType: _businessTypeController.text.trim(),
-        registrationNumber: _registrationNumberController.text.trim(),
+        registrationNumber: _registrationNumberController.text.trim().isEmpty ? null : _registrationNumberController.text.trim(),
         vatNumber: _vatNumberController.text.trim().isEmpty ? null : _vatNumberController.text.trim(),
         dateOfBirth: _dateOfBirth!,
         nationality: _nationalityController.text.trim(),
@@ -415,10 +458,32 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
                             validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
                           ),
                           const SizedBox(height: AppSpacing.md),
-                          TextFormField(
-                            controller: _businessTypeController,
-                            decoration: const InputDecoration(labelText: 'Business type (LLC, Corporation, etc.)', prefixIcon: Icon(Icons.apartment_outlined)),
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                          FormField<String>(
+                            validator: (_) => _businessTypeController.text.trim().isEmpty ? 'Required' : null,
+                            builder: (state) {
+                              final items = _businessTypesForCountryKey(_countryKey);
+                              return DropdownMenu<String>(
+                                controller: _businessTypeController,
+                                width: double.infinity,
+                                expandedInsets: EdgeInsets.zero,
+                                requestFocusOnTap: true,
+                                enableFilter: true,
+                                leadingIcon: const Icon(Icons.apartment_outlined),
+                                label: const Text('Business type'),
+                                hintText: items.isNotEmpty ? items.first : null,
+                                errorText: state.errorText,
+                                onSelected: (v) {
+                                  if (v == null) return;
+                                  // Keep controller in sync for autosave + submit.
+                                  _businessTypeController.text = v;
+                                  state.didChange(v);
+                                  _autosave();
+                                },
+                                dropdownMenuEntries: [
+                                  for (final t in items) DropdownMenuEntry<String>(value: t, label: t),
+                                ],
+                              );
+                            },
                           ),
                           const SizedBox(height: AppSpacing.md),
                           _PrefilledAddressPanel(
@@ -438,8 +503,10 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
                           const SizedBox(height: AppSpacing.md),
                           TextFormField(
                             controller: _registrationNumberController,
-                            decoration: const InputDecoration(labelText: 'Business registration number (e.g., SIRET)', prefixIcon: Icon(Icons.badge_outlined)),
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                            decoration: const InputDecoration(
+                              labelText: 'Business registration number (optional)',
+                              prefixIcon: Icon(Icons.badge_outlined),
+                            ),
                           ),
                           const SizedBox(height: AppSpacing.md),
                           TextFormField(
@@ -493,10 +560,29 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
                             validator: (_) => _dateOfBirth == null ? 'Required' : null,
                           ),
                           const SizedBox(height: AppSpacing.md),
-                          TextFormField(
-                            controller: _nationalityController,
-                            decoration: const InputDecoration(labelText: 'Nationality', prefixIcon: Icon(Icons.flag_outlined)),
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                          FormField<String>(
+                            validator: (_) => _nationalityController.text.trim().isEmpty ? 'Required' : null,
+                            builder: (state) {
+                              return DropdownMenu<String>(
+                                controller: _nationalityController,
+                                width: double.infinity,
+                                expandedInsets: EdgeInsets.zero,
+                                requestFocusOnTap: true,
+                                enableFilter: true,
+                                leadingIcon: const Icon(Icons.flag_outlined),
+                                label: const Text('Nationality'),
+                                errorText: state.errorText,
+                                onSelected: (v) {
+                                  if (v == null) return;
+                                  _nationalityController.text = v;
+                                  state.didChange(v);
+                                  _autosave();
+                                },
+                                dropdownMenuEntries: [
+                                  for (final c in AppConstants.countryOptions) DropdownMenuEntry<String>(value: c, label: c),
+                                ],
+                              );
+                            },
                           ),
                           const SizedBox(height: AppSpacing.md),
                           _DocumentPickerRow(
@@ -947,7 +1033,7 @@ class _PrefilledAddressPanel extends StatelessWidget {
           readOnly: readOnlyLine2,
           style: style,
           decoration: decorate(
-            const InputDecoration(labelText: 'Address complement', prefixIcon: Icon(Icons.location_on_outlined)),
+            const InputDecoration(labelText: 'Address complement (optional)', prefixIcon: Icon(Icons.location_on_outlined)),
             line2.text.trim().isNotEmpty,
           ),
         ),

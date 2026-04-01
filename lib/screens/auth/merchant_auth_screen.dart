@@ -151,23 +151,46 @@ class _MerchantAuthScreenState extends State<MerchantAuthScreen> {
   }
 
   String? _countryToZippopotamCode(String? countryName) {
-    switch (countryName) {
-      case 'France':
+    final normalized = countryName?.trim().toLowerCase();
+    if (normalized == null || normalized.isEmpty) return null;
+
+    // Zippopotam expects ISO-3166 alpha-2 codes.
+    // We accept common English/French labels to be resilient to localization.
+    switch (normalized) {
+      case 'france':
         return 'fr';
-      case 'Spain':
+      case 'spain':
+      case 'espagne':
         return 'es';
-      case 'Italy':
+      case 'italy':
+      case 'italie':
         return 'it';
-      case 'Belgium':
+      case 'belgium':
+      case 'belgique':
         return 'be';
-      case 'Germany':
+      case 'germany':
+      case 'allemagne':
         return 'de';
-      case 'Switzerland':
+      case 'switzerland':
+      case 'suisse':
         return 'ch';
-      case 'England':
+      case 'england':
+      case 'united kingdom':
+      case 'royaume-uni':
+      case 'royaume uni':
+      case 'uk':
         // Zippopotam uses GB for United Kingdom.
         return 'gb';
-      // Note: Morocco/Algeria/Tunisia are not consistently supported by free ZIP APIs.
+      case 'morocco':
+      case 'maroc':
+        return 'ma';
+      case 'algeria':
+      case 'algérie':
+      case 'algerie':
+        return 'dz';
+      case 'tunisia':
+      case 'tunisie':
+        return 'tn';
       default:
         return null;
     }
@@ -724,11 +747,17 @@ class _MerchantAuthScreenState extends State<MerchantAuthScreen> {
                       const SizedBox(width: AppSpacing.md),
                       Expanded(
                         child: DropdownMenu<String>(
+                          width: double.infinity,
+                          expandedInsets: EdgeInsets.zero,
                           controller: _cityController,
                           focusNode: _cityFocusNode,
                           requestFocusOnTap: true,
                           enableFilter: true,
                           enableSearch: true,
+                          inputDecorationTheme: Theme.of(context).inputDecorationTheme.copyWith(
+                            isDense: false,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          ),
                           leadingIcon: const Icon(Icons.location_city_outlined),
                           label: const Text('City'),
                           trailingIcon: _isCityLookupLoading
