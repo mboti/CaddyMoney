@@ -82,17 +82,27 @@ class AuthProvider with ChangeNotifier {
       password: password,
     );
 
-    _isLoading = false;
-    
     if (result['success'] == true) {
-      _currentUser = result['profile'];
-      notifyListeners();
+      try {
+        // Ensure we load both profile + merchant (if applicable) immediately,
+        // so go_router redirects can rely on up-to-date status.
+        await _loadCurrentUser();
+      } catch (e) {
+        debugPrint('AuthProvider.signIn post-load failed: $e');
+        // Fall back to whatever AuthService returned.
+        _currentUser = result['profile'];
+        notifyListeners();
+      } finally {
+        _isLoading = false;
+        notifyListeners();
+      }
       return true;
-    } else {
-      _error = result['error'];
-      notifyListeners();
-      return false;
     }
+
+    _isLoading = false;
+    _error = result['error'];
+    notifyListeners();
+    return false;
   }
 
   Future<bool> signInForRole({

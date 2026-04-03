@@ -573,8 +573,9 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
       }
 
       await context.read<AuthProvider>().refreshMerchant();
+      // Ensure no transient SnackBars from previous steps linger into the next screen.
+      ScaffoldMessenger.of(context).clearSnackBars();
       context.go(AppRoutes.merchantUnderReview);
-      setState(() {});
     } catch (e) {
       debugPrint('Merchant KYC submit failed: $e');
       if (!mounted) return;

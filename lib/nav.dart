@@ -20,6 +20,7 @@ import 'package:caddymoney/screens/user/send_money_screen.dart';
 import 'package:caddymoney/screens/user/transactions_screen.dart';
 import 'package:caddymoney/providers/auth_provider.dart';
 import 'package:caddymoney/core/enums/app_role.dart';
+import 'package:caddymoney/core/enums/merchant_status.dart';
 import 'package:caddymoney/core/config/supabase_config.dart';
 
 class AppRouter {
@@ -62,11 +63,20 @@ class AppRouter {
 
       // Merchant access restriction: until KYC is complete AND verified.
       if (isMerchant && isAuthed) {
+        final merchant = auth.currentMerchant;
+        final isPendingReview = merchant?.status == MerchantStatus.pending && merchant?.profileCompleted == true;
         final isOnboarding = location == AppRoutes.merchantOnboarding;
         final isUnderReview = location == AppRoutes.merchantUnderReview;
 
         // Only gate *merchant protected routes*.
         if (isMerchantProtected) {
+          // If KYC was submitted and is pending review, always land on the
+          // dedicated confirmation screen after login/restart.
+          if (isPendingReview) {
+            if (!isUnderReview) return AppRoutes.merchantUnderReview;
+            return null;
+          }
+
           if (!auth.merchantHasFullAccess) {
             // Merchants without full access are allowed to reach the onboarding and
             // the under-review confirmation screen.

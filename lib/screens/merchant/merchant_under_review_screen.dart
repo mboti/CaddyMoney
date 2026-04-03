@@ -12,16 +12,14 @@ class MerchantUnderReviewScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          tooltip: 'Back',
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => context.go(AppRoutes.merchantOnboarding),
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          title: const Text('Verification in review'),
         ),
-        title: const Text('Verification in review'),
-      ),
-      body: SafeArea(
+        body: SafeArea(
         child: Padding(
           padding: AppSpacing.paddingLg,
           child: Center(
@@ -94,34 +92,21 @@ class MerchantUnderReviewScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: AppSpacing.lg),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () => context.go(AppRoutes.merchantOnboarding),
-                            icon: Icon(Icons.edit_outlined, color: cs.primary),
-                            label: Text('Review details', style: TextStyle(color: cs.primary)),
-                          ),
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () async {
-                              await context.read<AuthProvider>().signOut();
-                              if (!context.mounted) return;
-                              context.go(AppRoutes.roleSelection);
-                            },
-                            icon: const Icon(Icons.logout_rounded, color: Colors.white),
-                            label: const Text('Sign out', style: TextStyle(color: Colors.white)),
-                          ),
-                        ),
-                      ],
+                    ElevatedButton.icon(
+                      onPressed: () async {
+                        await context.read<AuthProvider>().signOut();
+                        if (!context.mounted) return;
+                        context.go(AppRoutes.roleSelection);
+                      },
+                      icon: const Icon(Icons.logout_rounded, color: Colors.white),
+                      label: const Text('Sign out', style: TextStyle(color: Colors.white)),
                     ),
                   ],
                 ),
               ),
             ),
           ),
+        ),
         ),
       ),
     );
