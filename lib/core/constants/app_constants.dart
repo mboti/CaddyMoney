@@ -4,6 +4,15 @@ class AppConstants {
   static const String defaultLanguage = 'fr';
   static const String fallbackLanguage = 'en';
 
+  /// Supabase Storage bucket used for merchant KYC uploads (ID docs, registration docs, logo).
+  ///
+  /// Note: Supabase Storage stores *file bytes* in buckets, while the database stores only
+  /// the resulting object key/path (e.g. `id_document_path`).
+  ///
+  /// If uploads fail with "Bucket not found", create a bucket with this name in Supabase
+  /// (Storage → Buckets) or change this constant to match your existing bucket.
+  static const String kycStorageBucket = 'kyc-docs';
+
   /// Countries shown across the app in country/nationality selectors.
   ///
   /// Keep this list in sync wherever we offer a country picker.

@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:caddymoney/theme.dart';
 import 'package:caddymoney/core/constants/app_constants.dart';
 import 'package:caddymoney/core/enums/merchant_status.dart';
+import 'package:caddymoney/nav.dart';
 import 'package:caddymoney/providers/auth_provider.dart';
 import 'package:caddymoney/services/merchant_service.dart';
 
@@ -19,8 +20,11 @@ class MerchantOnboardingKycScreen extends StatefulWidget {
 }
 
 class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScreen> {
-  final _formKey = GlobalKey<FormState>();
+  final _stepFormKeys = List.generate(6, (_) => GlobalKey<FormState>());
   final _merchantService = MerchantService();
+
+  final _pageController = PageController();
+  int _stepIndex = 0;
 
   final _businessNameController = TextEditingController();
   final _firstNameController = TextEditingController();
@@ -50,8 +54,11 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
 
   XFile? _idDoc;
   XFile? _registrationDoc;
+  XFile? _businessLogo;
 
   bool _prefillLoaded = false;
+
+  bool _flowStarted = false;
 
   String _countryKey = '';
 
@@ -86,6 +93,7 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
 
   @override
   void dispose() {
+    _pageController.dispose();
     _businessNameController.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
@@ -104,6 +112,18 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
     _ibanController.dispose();
     _accountHolderController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // When navigating back to this screen, ensure controller is on the current step.
+    if (_pageController.hasClients) {
+      final target = _stepIndex.clamp(0, 5);
+      if ((_pageController.page ?? target.toDouble()).round() != target) {
+        _pageController.jumpToPage(target);
+      }
+    }
   }
 
   String _normalizeCountryKey(String input) {
@@ -305,12 +325,12 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
     _autosave();
   }
 
-  Future<XFile?> _pickDocument({required String label}) async {
+  Future<XFile?> _pickFile({required String label, required List<String> allowedExtensions}) async {
     try {
       final result = await FilePicker.platform.pickFiles(
         dialogTitle: label,
         type: FileType.custom,
-        allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg'],
+        allowedExtensions: allowedExtensions,
         withData: kIsWeb,
       );
       if (result == null || result.files.isEmpty) return null;
@@ -342,9 +362,12 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
     required String pickerLabel,
     required String sheetTitle,
     required IconData sheetIcon,
+    required List<String> allowedExtensions,
+    String fileTileTitle = 'Choose a file',
+    String fileTileSubtitle = 'Upload a PDF or an image from your device',
   }) async {
     // Dreamflow preview typically runs on web; camera capture isn't available there.
-    if (kIsWeb) return _pickDocument(label: pickerLabel);
+    if (kIsWeb) return _pickFile(label: pickerLabel, allowedExtensions: allowedExtensions);
 
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -380,8 +403,8 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
                 const SizedBox(height: AppSpacing.sm),
                 ListTile(
                   leading: Icon(Icons.folder_open_outlined, color: cs.primary),
-                  title: const Text('Choose a file'),
-                  subtitle: const Text('Upload a PDF or an image from your device'),
+                  title: Text(fileTileTitle),
+                  subtitle: Text(fileTileSubtitle),
                   onTap: () => Navigator.of(context).pop('files'),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                 ),
@@ -418,19 +441,30 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
       }
     }
 
-    return _pickDocument(label: pickerLabel);
+    return _pickFile(label: pickerLabel, allowedExtensions: allowedExtensions);
   }
 
   Future<XFile?> _pickIdentityDocument() => _pickDocumentViaActionSheet(
         pickerLabel: 'Identity document',
         sheetTitle: 'Add identity document',
         sheetIcon: Icons.badge_outlined,
+        allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg'],
       );
 
   Future<XFile?> _pickBusinessRegistrationDocument() => _pickDocumentViaActionSheet(
         pickerLabel: 'Business registration',
         sheetTitle: 'Add business registration document',
         sheetIcon: Icons.domain_verification_outlined,
+        allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg'],
+      );
+
+  Future<XFile?> _pickBusinessLogo() => _pickDocumentViaActionSheet(
+        pickerLabel: 'Business logo',
+        sheetTitle: 'Add business logo',
+        sheetIcon: Icons.image_outlined,
+        allowedExtensions: const ['png', 'jpg', 'jpeg'],
+        fileTileTitle: 'Load image',
+        fileTileSubtitle: 'Upload a JPG or PNG from your device',
       );
 
   bool _isFormCompleteForSubmit() {
@@ -444,9 +478,54 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
     return true;
   }
 
+  bool _validateStep(int step) {
+    final key = _stepFormKeys[step];
+    final ok = key.currentState?.validate() ?? true;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fix the highlighted fields to continue.')),
+      );
+    }
+    return ok;
+  }
+
+  Future<void> _goToStep(int next) async {
+    final clamped = next.clamp(0, 5);
+    if (clamped == _stepIndex) return;
+    setState(() => _stepIndex = clamped);
+    await _pageController.animateToPage(
+      clamped,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Future<void> _next() async {
+    if (_loading) return;
+    if (!_validateStep(_stepIndex)) return;
+    if (_stepIndex >= 5) return;
+    await _goToStep(_stepIndex + 1);
+  }
+
+  Future<void> _back() async {
+    if (_loading) return;
+    if (_stepIndex <= 0) return;
+    await _goToStep(_stepIndex - 1);
+  }
+
   Future<void> _submit() async {
     if (_loading) return;
-    if (!_formKey.currentState!.validate()) return;
+    // Validate all steps before submission.
+    for (var i = 0; i < _stepFormKeys.length; i++) {
+      final ok = _stepFormKeys[i].currentState?.validate() ?? true;
+      if (!ok) {
+        await _goToStep(i);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please complete the highlighted fields.')),
+        );
+        return;
+      }
+    }
     if (!_isFormCompleteForSubmit()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please complete all required fields and documents.')),
@@ -457,12 +536,15 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
     setState(() => _loading = true);
     try {
       // Upload documents first.
-      final idPath = await _merchantService.uploadMerchantDocument(docType: 'id_document', file: _idDoc!);
-      final regPath = await _merchantService.uploadMerchantDocument(docType: 'business_registration', file: _registrationDoc!);
+      final idRes = await _merchantService.uploadMerchantDocument(docType: 'id_document', file: _idDoc!);
+      final regRes = await _merchantService.uploadMerchantDocument(docType: 'business_registration', file: _registrationDoc!);
+      final logoRes = _businessLogo == null ? (path: null as String?, error: null as String?) : await _merchantService.uploadMerchantDocument(docType: 'logo', file: _businessLogo!);
 
-      if (idPath == null || regPath == null) {
+      final firstError = idRes.error ?? regRes.error ?? logoRes.error;
+      if (idRes.path == null || regRes.path == null || (_businessLogo != null && logoRes.path == null)) {
+        debugPrint('KYC upload failed. id=${idRes.error} reg=${regRes.error} logo=${logoRes.error}');
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Upload failed. Please try again or contact support.')),
+          SnackBar(content: Text(firstError ?? 'Upload failed. Please try again or contact support.')),
         );
         return;
       }
@@ -476,8 +558,10 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
         iban: _ibanController.text.trim(),
         accountHolderName: _accountHolderController.text.trim(),
         categories: _categories.toList(),
-        idDocumentPath: idPath,
-        businessRegistrationDocPath: regPath,
+        idDocumentPath: idRes.path,
+        businessRegistrationDocPath: regRes.path,
+        logoPath: logoRes.path,
+        submitForReview: true,
       );
 
       if (!mounted) return;
@@ -489,9 +573,7 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
       }
 
       await context.read<AuthProvider>().refreshMerchant();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile submitted. Awaiting verification.')),
-      );
+      context.go(AppRoutes.merchantUnderReview);
       setState(() {});
     } catch (e) {
       debugPrint('Merchant KYC submit failed: $e');
@@ -525,18 +607,20 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
       body: SafeArea(
         child: !_prefillLoaded
             ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
+            : Padding(
                 padding: AppSpacing.paddingLg,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _StatusHeader(progress: progress, statusText: _statusText(merchant)),
-                    const SizedBox(height: AppSpacing.lg),
+                    if (!_flowStarted) ...[
+                      _StatusHeader(progress: progress, statusText: _statusText(merchant)),
+                      const SizedBox(height: AppSpacing.lg),
+                    ],
 
                     if (isApproved) ...[
                       _VerifiedPanel(onGoDashboard: () => context.go('/merchant-dashboard')),
                       const SizedBox(height: AppSpacing.lg),
-                    ] else ...[
+                    ] else if (!_flowStarted) ...[
                       _BlockedPanel(
                         title: profileCompleted ? 'Profile submitted' : 'Profile incomplete',
                         message: profileCompleted
@@ -546,265 +630,422 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
                       const SizedBox(height: AppSpacing.lg),
                     ],
 
-                    Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _SectionTitle(icon: Icons.business_outlined, title: '1. Business information'),
-                          const SizedBox(height: AppSpacing.md),
-                          TextFormField(
-                            controller: _businessNameController,
-                            readOnly: _sharedFieldReadOnly(_businessNameController),
-                            style: _sharedFieldTextStyle(context),
-                            decoration: _sharedCompletedDecoration(
-                              context,
-                              const InputDecoration(labelText: 'Legal business name', prefixIcon: Icon(Icons.business_outlined)),
-                              completed: _hasValue(_businessNameController),
-                            ),
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          FormField<String>(
-                            validator: (_) => _businessTypeController.text.trim().isEmpty ? 'Required' : null,
-                            builder: (state) {
-                              final items = _businessTypesForCountryKey(_countryKey);
-                              return DropdownMenu<String>(
-                                controller: _businessTypeController,
-                                width: double.infinity,
-                                expandedInsets: EdgeInsets.zero,
-                                requestFocusOnTap: true,
-                                enableFilter: true,
-                                leadingIcon: const Icon(Icons.apartment_outlined),
-                                label: const Text('Business type'),
-                                hintText: items.isNotEmpty ? items.first : null,
-                                errorText: state.errorText,
-                                onSelected: (v) {
-                                  if (v == null) return;
-                                  // Keep controller in sync for autosave + submit.
-                                  _businessTypeController.text = v;
-                                  state.didChange(v);
-                                  _autosave();
-                                },
-                                dropdownMenuEntries: [
-                                  for (final t in items) DropdownMenuEntry<String>(value: t, label: t),
-                                ],
-                              );
-                            },
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          _PrefilledAddressPanel(
-                            line1: _addressLine1Controller,
-                            line2: _addressLine2Controller,
-                            city: _cityController,
-                            postalCode: _postalCodeController,
-                            country: _countryController,
-                            readOnlyLine1: _sharedFieldReadOnly(_addressLine1Controller),
-                            readOnlyLine2: _sharedFieldReadOnly(_addressLine2Controller),
-                            readOnlyCity: _sharedFieldReadOnly(_cityController),
-                            readOnlyPostalCode: _sharedFieldReadOnly(_postalCodeController),
-                            readOnlyCountry: _sharedFieldReadOnly(_countryController),
-                            style: _sharedFieldTextStyle(context),
-                            decorate: (d, completed) => _sharedCompletedDecoration(context, d, completed: completed),
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          TextFormField(
-                            controller: _registrationNumberController,
-                            decoration: const InputDecoration(
-                              labelText: 'Business registration number (optional)',
-                              prefixIcon: Icon(Icons.badge_outlined),
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          TextFormField(
-                            controller: _vatNumberController,
-                            decoration: const InputDecoration(labelText: 'VAT number (optional)', prefixIcon: Icon(Icons.confirmation_number_outlined)),
-                          ),
-                          const SizedBox(height: AppSpacing.xl),
+                    if (_flowStarted) ...[
+                      _KycStepProgressHeader(currentIndex: _stepIndex, stepCount: _stepFormKeys.length),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
 
-                          _SectionTitle(icon: Icons.person_outline, title: '2. Seller identity'),
-                          const SizedBox(height: AppSpacing.md),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextFormField(
-                                  controller: _firstNameController,
-                                  readOnly: _sharedFieldReadOnly(_firstNameController),
-                                  style: _sharedFieldTextStyle(context),
-                                  decoration: _sharedCompletedDecoration(
-                                    context,
-                                    const InputDecoration(labelText: 'First name', prefixIcon: Icon(Icons.person_outline)),
-                                    completed: _hasValue(_firstNameController),
+                    Expanded(
+                      child: !_flowStarted
+                          ? _KycIntroCard(
+                              progress: progress,
+                              statusText: _statusText(merchant),
+                              isApproved: isApproved,
+                              profileCompleted: profileCompleted,
+                              onStart: () async {
+                                setState(() => _flowStarted = true);
+                                await _goToStep(0);
+                              },
+                            )
+                          : ClipRRect(
+                              borderRadius: BorderRadius.circular(AppRadius.lg),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.surface,
+                                  border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.35)),
+                                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                                ),
+                                child: PageView(
+                                  controller: _pageController,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  onPageChanged: (i) => setState(() => _stepIndex = i),
+                                  children: [
+                              _KycStepPage(
+                                titleIcon: Icons.business_outlined,
+                                title: '1. Business information',
+                                child: Form(
+                                  key: _stepFormKeys[0],
+                                  child: SingleChildScrollView(
+                                    padding: AppSpacing.paddingLg,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        TextFormField(
+                                          controller: _businessNameController,
+                                          readOnly: _sharedFieldReadOnly(_businessNameController),
+                                          style: _sharedFieldTextStyle(context),
+                                          decoration: _sharedCompletedDecoration(
+                                            context,
+                                            const InputDecoration(labelText: 'Legal business name', prefixIcon: Icon(Icons.business_outlined)),
+                                            completed: _hasValue(_businessNameController),
+                                          ),
+                                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                                        ),
+                                        const SizedBox(height: AppSpacing.md),
+                                        FormField<String>(
+                                          validator: (_) => _businessTypeController.text.trim().isEmpty ? 'Required' : null,
+                                          builder: (state) {
+                                            final items = _businessTypesForCountryKey(_countryKey);
+                                            return DropdownMenu<String>(
+                                              controller: _businessTypeController,
+                                              width: double.infinity,
+                                              expandedInsets: EdgeInsets.zero,
+                                              requestFocusOnTap: true,
+                                              enableFilter: true,
+                                              leadingIcon: const Icon(Icons.apartment_outlined),
+                                              label: const Text('Business type'),
+                                              hintText: items.isNotEmpty ? items.first : null,
+                                              errorText: state.errorText,
+                                              onSelected: (v) {
+                                                if (v == null) return;
+                                                _businessTypeController.text = v;
+                                                state.didChange(v);
+                                                _autosave();
+                                              },
+                                              dropdownMenuEntries: [
+                                                for (final t in items) DropdownMenuEntry<String>(value: t, label: t),
+                                              ],
+                                            );
+                                          },
+                                        ),
+                                        const SizedBox(height: AppSpacing.md),
+                                        _PrefilledAddressPanel(
+                                          line1: _addressLine1Controller,
+                                          line2: _addressLine2Controller,
+                                          city: _cityController,
+                                          postalCode: _postalCodeController,
+                                          country: _countryController,
+                                          readOnlyLine1: _sharedFieldReadOnly(_addressLine1Controller),
+                                          readOnlyLine2: _sharedFieldReadOnly(_addressLine2Controller),
+                                          readOnlyCity: _sharedFieldReadOnly(_cityController),
+                                          readOnlyPostalCode: _sharedFieldReadOnly(_postalCodeController),
+                                          readOnlyCountry: _sharedFieldReadOnly(_countryController),
+                                          style: _sharedFieldTextStyle(context),
+                                          decorate: (d, completed) => _sharedCompletedDecoration(context, d, completed: completed),
+                                        ),
+                                        const SizedBox(height: AppSpacing.md),
+                                        TextFormField(
+                                          controller: _registrationNumberController,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Business registration number (optional)',
+                                            prefixIcon: Icon(Icons.badge_outlined),
+                                          ),
+                                        ),
+                                        const SizedBox(height: AppSpacing.md),
+                                        TextFormField(
+                                          controller: _vatNumberController,
+                                          decoration: const InputDecoration(
+                                            labelText: 'VAT number (optional)',
+                                            prefixIcon: Icon(Icons.confirmation_number_outlined),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
                                 ),
                               ),
-                              const SizedBox(width: AppSpacing.md),
-                              Expanded(
-                                child: TextFormField(
-                                  controller: _lastNameController,
-                                  readOnly: _sharedFieldReadOnly(_lastNameController),
-                                  style: _sharedFieldTextStyle(context),
-                                  decoration: _sharedCompletedDecoration(
-                                    context,
-                                    const InputDecoration(labelText: 'Last name', prefixIcon: Icon(Icons.person_outline)),
-                                    completed: _hasValue(_lastNameController),
+                              _KycStepPage(
+                                titleIcon: Icons.person_outline,
+                                title: '2. Seller identity',
+                                child: Form(
+                                  key: _stepFormKeys[1],
+                                  child: SingleChildScrollView(
+                                    padding: AppSpacing.paddingLg,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: TextFormField(
+                                                controller: _firstNameController,
+                                                readOnly: _sharedFieldReadOnly(_firstNameController),
+                                                style: _sharedFieldTextStyle(context),
+                                                decoration: _sharedCompletedDecoration(
+                                                  context,
+                                                  const InputDecoration(labelText: 'First name', prefixIcon: Icon(Icons.person_outline)),
+                                                  completed: _hasValue(_firstNameController),
+                                                ),
+                                                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                                              ),
+                                            ),
+                                            const SizedBox(width: AppSpacing.md),
+                                            Expanded(
+                                              child: TextFormField(
+                                                controller: _lastNameController,
+                                                readOnly: _sharedFieldReadOnly(_lastNameController),
+                                                style: _sharedFieldTextStyle(context),
+                                                decoration: _sharedCompletedDecoration(
+                                                  context,
+                                                  const InputDecoration(labelText: 'Last name', prefixIcon: Icon(Icons.person_outline)),
+                                                  completed: _hasValue(_lastNameController),
+                                                ),
+                                                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: AppSpacing.md),
+                                        TextFormField(
+                                          controller: _dobController,
+                                          readOnly: true,
+                                          decoration: InputDecoration(
+                                            labelText: 'Date of birth',
+                                            prefixIcon: const Icon(Icons.cake_outlined),
+                                            suffixIcon: IconButton(
+                                              icon: const Icon(Icons.calendar_month_outlined),
+                                              onPressed: _pickDateOfBirth,
+                                            ),
+                                          ),
+                                          validator: (_) => _dateOfBirth == null ? 'Required' : null,
+                                        ),
+                                        const SizedBox(height: AppSpacing.md),
+                                        FormField<String>(
+                                          validator: (_) => _nationalityController.text.trim().isEmpty ? 'Required' : null,
+                                          builder: (state) {
+                                            return DropdownMenu<String>(
+                                              controller: _nationalityController,
+                                              width: double.infinity,
+                                              expandedInsets: EdgeInsets.zero,
+                                              requestFocusOnTap: true,
+                                              enableFilter: true,
+                                              leadingIcon: const Icon(Icons.flag_outlined),
+                                              label: const Text('Nationality'),
+                                              errorText: state.errorText,
+                                              onSelected: (v) {
+                                                if (v == null) return;
+                                                _nationalityController.text = v;
+                                                state.didChange(v);
+                                                _autosave();
+                                              },
+                                              dropdownMenuEntries: [
+                                                for (final c in AppConstants.countryOptions) DropdownMenuEntry<String>(value: c, label: c),
+                                              ],
+                                            );
+                                          },
+                                        ),
+                                        const SizedBox(height: AppSpacing.md),
+                                        _DocumentPickerRow(
+                                          title: 'Identity document (ID or passport)',
+                                          value: _idDoc?.name,
+                                          onPick: () async {
+                                            final f = await _pickIdentityDocument();
+                                            if (f == null) return;
+                                            setState(() => _idDoc = f);
+                                          },
+                                          onClear: _idDoc == null
+                                              ? null
+                                              : () {
+                                                  setState(() => _idDoc = null);
+                                                },
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                                ),
+                              ),
+                              _KycStepPage(
+                                titleIcon: Icons.account_balance_outlined,
+                                title: '3. Banking information',
+                                child: Form(
+                                  key: _stepFormKeys[2],
+                                  child: SingleChildScrollView(
+                                    padding: AppSpacing.paddingLg,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        TextFormField(
+                                          controller: _ibanController,
+                                          decoration: const InputDecoration(labelText: 'IBAN', prefixIcon: Icon(Icons.account_balance_outlined)),
+                                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                                        ),
+                                        const SizedBox(height: AppSpacing.md),
+                                        TextFormField(
+                                          controller: _accountHolderController,
+                                          decoration: const InputDecoration(labelText: 'Account holder name', prefixIcon: Icon(Icons.person_outline)),
+                                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              _KycStepPage(
+                                titleIcon: Icons.category_outlined,
+                                title: '4. Business activity & Logo',
+                                child: Form(
+                                  key: _stepFormKeys[3],
+                                  child: SingleChildScrollView(
+                                    padding: AppSpacing.paddingLg,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        FormField<bool>(
+                                          validator: (_) => _categories.isEmpty ? 'Select at least one category' : null,
+                                          builder: (state) {
+                                            return Column(
+                                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                                              children: [
+                                                if (state.errorText != null) ...[
+                                                  Padding(
+                                                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                                                    child: Text(
+                                                      state.errorText!,
+                                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
+                                                    ),
+                                                  ),
+                                                ],
+                                                _CategoryMultiSelect(
+                                                  selected: _categories,
+                                                  onChanged: (next) {
+                                                    setState(() => _categories = next);
+                                                    state.didChange(true);
+                                                    _autosave();
+                                                  },
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        ),
+                                        const SizedBox(height: AppSpacing.md),
+                                        _DocumentPickerRow(
+                                          title: 'Logo',
+                                          value: _businessLogo?.name,
+                                          onPick: () async {
+                                            final f = await _pickBusinessLogo();
+                                            if (f == null) return;
+                                            setState(() => _businessLogo = f);
+                                          },
+                                          onClear: _businessLogo == null
+                                              ? null
+                                              : () {
+                                                  setState(() => _businessLogo = null);
+                                                },
+                                        ),
+                                        const SizedBox(height: AppSpacing.sm),
+                                        Text(
+                                          'Logo is optional, but recommended for trust.',
+                                          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              _KycStepPage(
+                                titleIcon: Icons.support_agent_outlined,
+                                title: '5. Contact & customer support',
+                                child: Form(
+                                  key: _stepFormKeys[4],
+                                  child: SingleChildScrollView(
+                                    padding: AppSpacing.paddingLg,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        TextFormField(
+                                          controller: _phoneController,
+                                          readOnly: _sharedFieldReadOnly(_phoneController),
+                                          style: _sharedFieldTextStyle(context),
+                                          decoration: _sharedCompletedDecoration(
+                                            context,
+                                            const InputDecoration(labelText: 'Phone number', prefixIcon: Icon(Icons.phone_outlined)),
+                                            completed: _hasValue(_phoneController),
+                                          ),
+                                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                                        ),
+                                        const SizedBox(height: AppSpacing.md),
+                                        TextFormField(
+                                          controller: _emailController,
+                                          readOnly: _sharedFieldReadOnly(_emailController),
+                                          style: _sharedFieldTextStyle(context),
+                                          decoration: _sharedCompletedDecoration(
+                                            context,
+                                            const InputDecoration(labelText: 'Professional email', prefixIcon: Icon(Icons.email_outlined)),
+                                            completed: _hasValue(_emailController),
+                                          ),
+                                          validator: (v) {
+                                            if (v == null || v.trim().isEmpty) return 'Required';
+                                            if (!v.contains('@')) return 'Invalid email';
+                                            return null;
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              _KycStepPage(
+                                titleIcon: Icons.verified_outlined,
+                                title: '6. Verification & compliance',
+                                child: Form(
+                                  key: _stepFormKeys[5],
+                                  child: SingleChildScrollView(
+                                    padding: AppSpacing.paddingLg,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        FormField<bool>(
+                                          validator: (_) => _registrationDoc == null ? 'Required' : null,
+                                          builder: (state) {
+                                            return Column(
+                                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                                              children: [
+                                                if (state.errorText != null) ...[
+                                                  Padding(
+                                                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                                                    child: Text(
+                                                      state.errorText!,
+                                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
+                                                    ),
+                                                  ),
+                                                ],
+                                                _DocumentPickerRow(
+                                                  title: 'Business registration document (e.g., Kbis)',
+                                                  value: _registrationDoc?.name,
+                                                  onPick: () async {
+                                                    final f = await _pickBusinessRegistrationDocument();
+                                                    if (f == null) return;
+                                                    setState(() => _registrationDoc = f);
+                                                    state.didChange(true);
+                                                  },
+                                                  onClear: _registrationDoc == null
+                                                      ? null
+                                                      : () {
+                                                          setState(() => _registrationDoc = null);
+                                                          state.didChange(false);
+                                                        },
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        ),
+                                        const SizedBox(height: AppSpacing.md),
+                                        Text(
+                                          'Access unlocks only after verification.',
+                                          textAlign: TextAlign.center,
+                                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          TextFormField(
-                            controller: _dobController,
-                            readOnly: true,
-                            decoration: InputDecoration(
-                              labelText: 'Date of birth',
-                              prefixIcon: const Icon(Icons.cake_outlined),
-                              suffixIcon: IconButton(icon: const Icon(Icons.calendar_month_outlined), onPressed: _pickDateOfBirth),
+                                ),
+                              ),
                             ),
-                            validator: (_) => _dateOfBirth == null ? 'Required' : null,
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          FormField<String>(
-                            validator: (_) => _nationalityController.text.trim().isEmpty ? 'Required' : null,
-                            builder: (state) {
-                              return DropdownMenu<String>(
-                                controller: _nationalityController,
-                                width: double.infinity,
-                                expandedInsets: EdgeInsets.zero,
-                                requestFocusOnTap: true,
-                                enableFilter: true,
-                                leadingIcon: const Icon(Icons.flag_outlined),
-                                label: const Text('Nationality'),
-                                errorText: state.errorText,
-                                onSelected: (v) {
-                                  if (v == null) return;
-                                  _nationalityController.text = v;
-                                  state.didChange(v);
-                                  _autosave();
-                                },
-                                dropdownMenuEntries: [
-                                  for (final c in AppConstants.countryOptions) DropdownMenuEntry<String>(value: c, label: c),
-                                ],
-                              );
-                            },
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          _DocumentPickerRow(
-                            title: 'Identity document (ID or passport)',
-                            value: _idDoc?.name,
-                            onPick: () async {
-                              final f = await _pickIdentityDocument();
-                              if (f == null) return;
-                              setState(() => _idDoc = f);
-                            },
-                            onClear: _idDoc == null
-                                ? null
-                                : () {
-                                    setState(() => _idDoc = null);
-                                  },
-                          ),
-                          const SizedBox(height: AppSpacing.xl),
-
-                          _SectionTitle(icon: Icons.account_balance_outlined, title: '3. Banking information'),
-                          const SizedBox(height: AppSpacing.md),
-                          TextFormField(
-                            controller: _ibanController,
-                            decoration: const InputDecoration(labelText: 'IBAN', prefixIcon: Icon(Icons.account_balance_outlined)),
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          TextFormField(
-                            controller: _accountHolderController,
-                            decoration: const InputDecoration(labelText: 'Account holder name', prefixIcon: Icon(Icons.person_outline)),
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-                          ),
-                          const SizedBox(height: AppSpacing.xl),
-
-                          _SectionTitle(icon: Icons.category_outlined, title: '4. Business activity'),
-                          const SizedBox(height: AppSpacing.md),
-                          _CategoryMultiSelect(
-                            selected: _categories,
-                            onChanged: (next) {
-                              setState(() => _categories = next);
-                              _autosave();
-                            },
-                          ),
-                          const SizedBox(height: AppSpacing.xl),
-
-                          _SectionTitle(icon: Icons.support_agent_outlined, title: '5. Contact & customer support'),
-                          const SizedBox(height: AppSpacing.md),
-                          TextFormField(
-                            controller: _phoneController,
-                            readOnly: _sharedFieldReadOnly(_phoneController),
-                            style: _sharedFieldTextStyle(context),
-                            decoration: _sharedCompletedDecoration(
-                              context,
-                              const InputDecoration(labelText: 'Phone number', prefixIcon: Icon(Icons.phone_outlined)),
-                              completed: _hasValue(_phoneController),
-                            ),
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          TextFormField(
-                            controller: _emailController,
-                            readOnly: _sharedFieldReadOnly(_emailController),
-                            style: _sharedFieldTextStyle(context),
-                            decoration: _sharedCompletedDecoration(
-                              context,
-                              const InputDecoration(labelText: 'Professional email', prefixIcon: Icon(Icons.email_outlined)),
-                              completed: _hasValue(_emailController),
-                            ),
-                            validator: (v) {
-                              if (v == null || v.trim().isEmpty) return 'Required';
-                              if (!v.contains('@')) return 'Invalid email';
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: AppSpacing.xl),
-
-                          _SectionTitle(icon: Icons.verified_outlined, title: '6. Verification & compliance'),
-                          const SizedBox(height: AppSpacing.md),
-                          _DocumentPickerRow(
-                            title: 'Business registration document (e.g., Kbis)',
-                            value: _registrationDoc?.name,
-                            onPick: () async {
-                              final f = await _pickBusinessRegistrationDocument();
-                              if (f == null) return;
-                              setState(() => _registrationDoc = f);
-                            },
-                            onClear: _registrationDoc == null
-                                ? null
-                                : () {
-                                    setState(() => _registrationDoc = null);
-                                  },
-                          ),
-
-                          const SizedBox(height: AppSpacing.xl),
-                          ElevatedButton.icon(
-                            onPressed: _loading ? null : _submit,
-                            icon: _loading
-                                ? const SizedBox(
-                                    height: 18,
-                                    width: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                  )
-                                : const Icon(Icons.lock_open_outlined, color: Colors.white),
-                            label: const Text('Submit for verification', style: TextStyle(color: Colors.white)),
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          Text(
-                            'Access unlocks only after verification.',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
                     ),
+
+                    const SizedBox(height: AppSpacing.md),
+                    if (_flowStarted)
+                      _StepNavBar(
+                        stepIndex: _stepIndex,
+                        isLoading: _loading,
+                        onBack: _back,
+                        onNext: _stepIndex == 5 ? _submit : _next,
+                      ),
                   ],
                 ),
               ),
@@ -932,6 +1173,89 @@ class _VerifiedPanel extends StatelessWidget {
             onPressed: onGoDashboard,
             child: const Text('Open dashboard'),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KycIntroCard extends StatelessWidget {
+  final double progress;
+  final String statusText;
+  final bool isApproved;
+  final bool profileCompleted;
+  final VoidCallback onStart;
+
+  const _KycIntroCard({required this.progress, required this.statusText, required this.isApproved, required this.profileCompleted, required this.onStart});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final title = isApproved
+        ? 'Verification complete'
+        : profileCompleted
+            ? 'Submission received'
+            : 'Start merchant verification';
+    final subtitle = isApproved
+        ? 'You already have full access.'
+        : profileCompleted
+            ? 'We’re reviewing your information. You can revisit and update details if needed.'
+            : 'Complete a few quick steps to unlock selling and payments.';
+
+    return Container(
+      padding: AppSpacing.paddingLg,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: cs.outline.withValues(alpha: 0.35)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            cs.primaryContainer.withValues(alpha: 0.45),
+            cs.surface,
+          ],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+          const SizedBox(height: AppSpacing.xs),
+          Text(subtitle, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant, height: 1.45)),
+          const SizedBox(height: AppSpacing.lg),
+          Container(
+            padding: AppSpacing.paddingMd,
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: cs.outline.withValues(alpha: 0.25)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.timelapse_rounded, color: cs.primary),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Text(
+                    'Estimated time: 3–5 minutes',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                Text('${(progress * 100).round()}%', style: Theme.of(context).textTheme.labelLarge?.copyWith(color: cs.onSurfaceVariant)),
+              ],
+            ),
+          ),
+          const Spacer(),
+          if (!isApproved)
+            ElevatedButton.icon(
+              onPressed: onStart,
+              icon: const Icon(Icons.play_arrow_rounded, color: Colors.white),
+              label: const Text('Start', style: TextStyle(color: Colors.white)),
+            )
+          else
+            FilledButton.tonal(
+              onPressed: () => context.go('/merchant-dashboard'),
+              child: const Text('Go to dashboard'),
+            ),
         ],
       ),
     );
@@ -1149,6 +1473,142 @@ class _PrefilledAddressPanel extends StatelessWidget {
           validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
         ),
       ],
+    );
+  }
+}
+
+class _KycStepProgressHeader extends StatelessWidget {
+  final int currentIndex;
+  final int stepCount;
+
+  const _KycStepProgressHeader({required this.currentIndex, required this.stepCount});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final safeStepCount = stepCount <= 0 ? 1 : stepCount;
+    final safeCurrent = currentIndex.clamp(0, safeStepCount - 1);
+    final value = (safeCurrent + 1) / safeStepCount;
+
+    return Container(
+      padding: AppSpacing.paddingMd,
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: cs.outline.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.route_outlined, color: cs.primary),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Step ${safeCurrent + 1} of $safeStepCount',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
+              Text(
+                '${(value * 100).round()}%',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(color: cs.onSurfaceVariant),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              value: value,
+              minHeight: 8,
+              backgroundColor: cs.surface,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KycStepPage extends StatelessWidget {
+  final IconData titleIcon;
+  final String title;
+  final Widget child;
+
+  const _KycStepPage({required this.titleIcon, required this.title, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerHighest,
+            border: Border(bottom: BorderSide(color: cs.outline.withValues(alpha: 0.25))),
+          ),
+          child: Row(
+            children: [
+              Icon(titleIcon, color: cs.primary),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+        ),
+        Expanded(child: child),
+      ],
+    );
+  }
+}
+
+class _StepNavBar extends StatelessWidget {
+  final int stepIndex;
+  final bool isLoading;
+  final VoidCallback onBack;
+  final VoidCallback onNext;
+
+  const _StepNavBar({required this.stepIndex, required this.isLoading, required this.onBack, required this.onNext});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isFirst = stepIndex == 0;
+    final isLast = stepIndex == 5;
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: cs.outline.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          if (!isFirst) ...[
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: isLoading ? null : onBack,
+                icon: Icon(Icons.arrow_back_rounded, color: cs.primary),
+                label: Text('Back', style: TextStyle(color: cs.primary)),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+          ],
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: isLoading ? null : onNext,
+              icon: isLoading
+                  ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Icon(isLast ? Icons.lock_open_outlined : Icons.arrow_forward_rounded, color: Colors.white),
+              label: Text(isLast ? 'Validate' : 'Next', style: const TextStyle(color: Colors.white)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

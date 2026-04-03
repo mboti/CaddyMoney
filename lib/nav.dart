@@ -10,6 +10,7 @@ import 'package:caddymoney/screens/auth/admin_login_screen.dart';
 import 'package:caddymoney/screens/user/user_home_screen.dart';
 import 'package:caddymoney/screens/merchant/merchant_dashboard_screen.dart';
 import 'package:caddymoney/screens/merchant/merchant_onboarding_kyc_screen.dart';
+import 'package:caddymoney/screens/merchant/merchant_under_review_screen.dart';
 import 'package:caddymoney/screens/admin/admin_dashboard_screen.dart';
 import 'package:caddymoney/screens/settings_screen.dart';
 import 'package:caddymoney/screens/settings/payment_methods_screen.dart';
@@ -43,7 +44,9 @@ class AppRouter {
 
       // Require login for protected areas.
       // (Note: don't use naive startsWith('/merchant') because it matches '/merchant-auth'.)
-      final isMerchantProtected = location == AppRoutes.merchantDashboard || location == AppRoutes.merchantOnboarding;
+      final isMerchantProtected = location == AppRoutes.merchantDashboard ||
+          location == AppRoutes.merchantOnboarding ||
+          location == AppRoutes.merchantUnderReview;
       final isUserProtected = location == AppRoutes.userHome ||
           location == AppRoutes.sendMoney ||
           location == AppRoutes.receiveMoney ||
@@ -60,13 +63,16 @@ class AppRouter {
       // Merchant access restriction: until KYC is complete AND verified.
       if (isMerchant && isAuthed) {
         final isOnboarding = location == AppRoutes.merchantOnboarding;
+        final isUnderReview = location == AppRoutes.merchantUnderReview;
 
         // Only gate *merchant protected routes*.
         if (isMerchantProtected) {
           if (!auth.merchantHasFullAccess) {
-            if (!isOnboarding) return AppRoutes.merchantOnboarding;
+            // Merchants without full access are allowed to reach the onboarding and
+            // the under-review confirmation screen.
+            if (!isOnboarding && !isUnderReview) return AppRoutes.merchantOnboarding;
           } else {
-            if (isOnboarding) return AppRoutes.merchantDashboard;
+            if (isOnboarding || isUnderReview) return AppRoutes.merchantDashboard;
           }
         }
       }
@@ -128,6 +134,13 @@ class AppRouter {
         name: 'merchant-onboarding',
         pageBuilder: (context, state) => const NoTransitionPage(
           child: MerchantOnboardingKycScreen(),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.merchantUnderReview,
+        name: 'merchant-under-review',
+        pageBuilder: (context, state) => const NoTransitionPage(
+          child: MerchantUnderReviewScreen(),
         ),
       ),
       GoRoute(
@@ -194,6 +207,7 @@ class AppRoutes {
   static const String userHome = '/user-home';
   static const String merchantDashboard = '/merchant-dashboard';
   static const String merchantOnboarding = '/merchant-onboarding';
+  static const String merchantUnderReview = '/merchant-under-review';
   static const String adminDashboard = '/admin-dashboard';
   static const String settings = '/settings';
   static const String paymentMethods = '/payment-methods';
