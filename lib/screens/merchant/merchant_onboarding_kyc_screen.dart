@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:file_selector/file_selector.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:caddymoney/theme.dart';
 import 'package:caddymoney/core/constants/app_constants.dart';
 import 'package:caddymoney/core/enums/merchant_status.dart';
@@ -43,15 +44,11 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
   final _ibanController = TextEditingController();
   final _accountHolderController = TextEditingController();
 
-  final _supportAddressController = TextEditingController();
-
   bool _loading = false;
-  bool _smsVerified = false;
   DateTime? _dateOfBirth;
   Set<String> _categories = {};
 
   XFile? _idDoc;
-  XFile? _proofOfAddress;
   XFile? _registrationDoc;
 
   bool _prefillLoaded = false;
@@ -82,7 +79,6 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
       _nationalityController,
       _ibanController,
       _accountHolderController,
-      _supportAddressController,
     ]) {
       c.addListener(_scheduleAutosave);
     }
@@ -107,7 +103,6 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
     _nationalityController.dispose();
     _ibanController.dispose();
     _accountHolderController.dispose();
-    _supportAddressController.dispose();
     super.dispose();
   }
 
@@ -210,13 +205,11 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
         _nationalityController.text = map.nationality ?? _nationalityController.text;
         _ibanController.text = map.iban ?? _ibanController.text;
         _accountHolderController.text = map.accountHolderName ?? _accountHolderController.text;
-        _supportAddressController.text = map.customerSupportAddress ?? _supportAddressController.text;
         if (map.categories.isNotEmpty) _categories = {...map.categories};
         if (map.dateOfBirthIso != null) {
           _dateOfBirth = DateTime.tryParse(map.dateOfBirthIso!);
           if (_dateOfBirth != null) _dobController.text = _formatDate(_dateOfBirth!);
         }
-        _smsVerified = map.smsVerified ?? _smsVerified;
       }
     } catch (e) {
       debugPrint('Failed to load merchant KYC draft: $e');
@@ -287,9 +280,7 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
         nationality: _nationalityController.text.trim().isEmpty ? null : _nationalityController.text.trim(),
         iban: _ibanController.text.trim().isEmpty ? null : _ibanController.text.trim(),
         accountHolderName: _accountHolderController.text.trim().isEmpty ? null : _accountHolderController.text.trim(),
-        customerSupportAddress: _supportAddressController.text.trim().isEmpty ? null : _supportAddressController.text.trim(),
         categories: _categories.toList(),
-        smsVerified: _smsVerified,
       );
       await prefs.setString(_prefsKey, draft.encode());
     } catch (e) {
@@ -315,10 +306,132 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
   }
 
   Future<XFile?> _pickDocument({required String label}) async {
-    final group = XTypeGroup(label: label, extensions: const ['pdf', 'png', 'jpg', 'jpeg']);
-    final file = await openFile(acceptedTypeGroups: [group]);
-    return file;
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        dialogTitle: label,
+        type: FileType.custom,
+        allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg'],
+        withData: kIsWeb,
+      );
+      if (result == null || result.files.isEmpty) return null;
+
+      final f = result.files.first;
+      if (f.bytes != null) return XFile.fromData(f.bytes!, name: f.name);
+
+      final path = f.path;
+      if (path == null || path.isEmpty) {
+        debugPrint('FilePicker returned a null/empty path for $label');
+        if (!mounted) return null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to open file browser. Please try again.')),
+        );
+        return null;
+      }
+      return XFile(path, name: f.name);
+    } catch (e) {
+      debugPrint('Failed to open file picker for $label: $e');
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to open file browser. Please try again.')),
+      );
+      return null;
+    }
   }
+
+  Future<XFile?> _pickDocumentViaActionSheet({
+    required String pickerLabel,
+    required String sheetTitle,
+    required IconData sheetIcon,
+  }) async {
+    // Dreamflow preview typically runs on web; camera capture isn't available there.
+    if (kIsWeb) return _pickDocument(label: pickerLabel);
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        final cs = Theme.of(context).colorScheme;
+        return SafeArea(
+          child: Padding(
+            padding: AppSpacing.paddingLg,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Icon(sheetIcon, color: cs.primary),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        sheetTitle,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                ListTile(
+                  leading: Icon(Icons.photo_camera_outlined, color: cs.primary),
+                  title: const Text('Use camera'),
+                  subtitle: const Text('Take a photo and attach it'),
+                  onTap: () => Navigator.of(context).pop('camera'),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                ListTile(
+                  leading: Icon(Icons.folder_open_outlined, color: cs.primary),
+                  title: const Text('Choose a file'),
+                  subtitle: const Text('Upload a PDF or an image from your device'),
+                  onTap: () => Navigator.of(context).pop('files'),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) return null;
+
+    // iOS can fail to present the document picker if we try to open it while the
+    // bottom sheet is still dismissing. Give the route transition a brief moment.
+    await Future.delayed(const Duration(milliseconds: 400));
+
+    if (action == 'camera') {
+      try {
+        final picker = ImagePicker();
+        final img = await picker.pickImage(
+          source: ImageSource.camera,
+          preferredCameraDevice: CameraDevice.rear,
+          maxWidth: 2400,
+          imageQuality: 88,
+        );
+        return img;
+      } catch (e) {
+        debugPrint('Failed to capture image from camera: $e');
+        if (!mounted) return null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to access camera. Please choose a file instead.')),
+        );
+        return null;
+      }
+    }
+
+    return _pickDocument(label: pickerLabel);
+  }
+
+  Future<XFile?> _pickIdentityDocument() => _pickDocumentViaActionSheet(
+        pickerLabel: 'Identity document',
+        sheetTitle: 'Add identity document',
+        sheetIcon: Icons.badge_outlined,
+      );
+
+  Future<XFile?> _pickBusinessRegistrationDocument() => _pickDocumentViaActionSheet(
+        pickerLabel: 'Business registration',
+        sheetTitle: 'Add business registration document',
+        sheetIcon: Icons.domain_verification_outlined,
+      );
 
   bool _isFormCompleteForSubmit() {
     if (_businessTypeController.text.trim().isEmpty) return false;
@@ -326,10 +439,8 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
     if (_nationalityController.text.trim().isEmpty) return false;
     if (_ibanController.text.trim().isEmpty) return false;
     if (_accountHolderController.text.trim().isEmpty) return false;
-    if (_supportAddressController.text.trim().isEmpty) return false;
     if (_categories.isEmpty) return false;
-    if (_idDoc == null || _proofOfAddress == null || _registrationDoc == null) return false;
-    if (!_smsVerified) return false;
+    if (_idDoc == null || _registrationDoc == null) return false;
     return true;
   }
 
@@ -347,10 +458,9 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
     try {
       // Upload documents first.
       final idPath = await _merchantService.uploadMerchantDocument(docType: 'id_document', file: _idDoc!);
-      final proofPath = await _merchantService.uploadMerchantDocument(docType: 'proof_of_address', file: _proofOfAddress!);
       final regPath = await _merchantService.uploadMerchantDocument(docType: 'business_registration', file: _registrationDoc!);
 
-      if (idPath == null || proofPath == null || regPath == null) {
+      if (idPath == null || regPath == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Upload failed. Please try again or contact support.')),
         );
@@ -365,11 +475,8 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
         nationality: _nationalityController.text.trim(),
         iban: _ibanController.text.trim(),
         accountHolderName: _accountHolderController.text.trim(),
-        customerSupportAddress: _supportAddressController.text.trim(),
         categories: _categories.toList(),
-        smsVerified: _smsVerified,
         idDocumentPath: idPath,
-        proofOfAddressPath: proofPath,
         businessRegistrationDocPath: regPath,
       );
 
@@ -589,10 +696,15 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
                             title: 'Identity document (ID or passport)',
                             value: _idDoc?.name,
                             onPick: () async {
-                              final f = await _pickDocument(label: 'Identity document');
+                              final f = await _pickIdentityDocument();
                               if (f == null) return;
                               setState(() => _idDoc = f);
                             },
+                            onClear: _idDoc == null
+                                ? null
+                                : () {
+                                    setState(() => _idDoc = null);
+                                  },
                           ),
                           const SizedBox(height: AppSpacing.xl),
 
@@ -651,44 +763,23 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
                               return null;
                             },
                           ),
-                          const SizedBox(height: AppSpacing.md),
-                          TextFormField(
-                            controller: _supportAddressController,
-                            decoration: const InputDecoration(labelText: 'Customer contact address', prefixIcon: Icon(Icons.location_on_outlined)),
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-                          ),
                           const SizedBox(height: AppSpacing.xl),
 
                           _SectionTitle(icon: Icons.verified_outlined, title: '6. Verification & compliance'),
                           const SizedBox(height: AppSpacing.md),
                           _DocumentPickerRow(
-                            title: 'Proof of address (utility bill)',
-                            value: _proofOfAddress?.name,
-                            onPick: () async {
-                              final f = await _pickDocument(label: 'Proof of address');
-                              if (f == null) return;
-                              setState(() => _proofOfAddress = f);
-                            },
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          _DocumentPickerRow(
                             title: 'Business registration document (e.g., Kbis)',
                             value: _registrationDoc?.name,
                             onPick: () async {
-                              final f = await _pickDocument(label: 'Business registration');
+                              final f = await _pickBusinessRegistrationDocument();
                               if (f == null) return;
                               setState(() => _registrationDoc = f);
                             },
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          _SmsVerificationTile(
-                            isVerified: _smsVerified,
-                            onVerify: () async {
-                              // Placeholder: here you would trigger SMS OTP.
-                              // For now: allow manual "verify" to keep the flow testable.
-                              setState(() => _smsVerified = true);
-                              _autosave();
-                            },
+                            onClear: _registrationDoc == null
+                                ? null
+                                : () {
+                                    setState(() => _registrationDoc = null);
+                                  },
                           ),
 
                           const SizedBox(height: AppSpacing.xl),
@@ -871,8 +962,9 @@ class _DocumentPickerRow extends StatelessWidget {
   final String title;
   final String? value;
   final VoidCallback onPick;
+  final VoidCallback? onClear;
 
-  const _DocumentPickerRow({required this.title, required this.value, required this.onPick});
+  const _DocumentPickerRow({required this.title, required this.value, required this.onPick, this.onClear});
 
   @override
   Widget build(BuildContext context) {
@@ -894,56 +986,34 @@ class _DocumentPickerRow extends StatelessWidget {
               children: [
                 Text(title, style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
                 const SizedBox(height: AppSpacing.xs),
-                Text(
-                  value ?? 'No file selected',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        value ?? 'No file selected',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (onClear != null) ...[
+                      const SizedBox(width: AppSpacing.xs),
+                      IconButton(
+                        tooltip: 'Remove file',
+                        onPressed: onClear,
+                        icon: Icon(Icons.delete_outline_rounded, color: cs.error),
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
           ),
           const SizedBox(width: AppSpacing.md),
           FilledButton.tonal(onPressed: onPick, child: const Text('Choose')),
-        ],
-      ),
-    );
-  }
-}
-
-class _SmsVerificationTile extends StatelessWidget {
-  final bool isVerified;
-  final VoidCallback onVerify;
-
-  const _SmsVerificationTile({required this.isVerified, required this.onVerify});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      padding: AppSpacing.paddingMd,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: cs.outline.withValues(alpha: 0.35)),
-      ),
-      child: Row(
-        children: [
-          Icon(isVerified ? Icons.verified_outlined : Icons.sms_outlined, color: isVerified ? cs.primary : cs.onSurfaceVariant),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('SMS verification', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  isVerified ? 'Verified' : 'Required to submit',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                ),
-              ],
-            ),
-          ),
-          FilledButton.tonal(onPressed: isVerified ? null : onVerify, child: Text(isVerified ? 'Done' : 'Verify')),
         ],
       ),
     );
@@ -1091,9 +1161,7 @@ class MerchantKycDraft {
   final String? nationality;
   final String? iban;
   final String? accountHolderName;
-  final String? customerSupportAddress;
   final List<String> categories;
-  final bool? smsVerified;
 
   MerchantKycDraft({
     required this.businessType,
@@ -1103,9 +1171,7 @@ class MerchantKycDraft {
     required this.nationality,
     required this.iban,
     required this.accountHolderName,
-    required this.customerSupportAddress,
     required this.categories,
-    required this.smsVerified,
   });
 
   String encode() {
@@ -1117,9 +1183,7 @@ class MerchantKycDraft {
       nationality ?? '',
       iban ?? '',
       accountHolderName ?? '',
-      customerSupportAddress ?? '',
       categories.join('|'),
-      (smsVerified == true) ? '1' : '0',
     ].join(';;');
   }
 
@@ -1127,8 +1191,16 @@ class MerchantKycDraft {
     final parts = raw.split(';;');
     String? pick(int i) => parts.length > i && parts[i].trim().isNotEmpty ? parts[i].trim() : null;
 
-    final cats = pick(8)?.split('|').where((e) => e.trim().isNotEmpty).toList() ?? <String>[];
-    final sms = (parts.length > 9 && parts[9] == '1');
+    // Backward compatible parsing:
+    // v1 (old): 10 parts = ... accountHolderName, customerSupportAddress, categories, sms
+    // v2 (old): 9 parts = ... accountHolderName, categories, sms
+    // v3 (current): 8 parts = ... accountHolderName, categories
+    final isV1 = parts.length >= 10;
+    final isV2 = parts.length == 9;
+    final categoriesIndex = isV1 ? 8 : 7;
+    final categoriesIndexV3 = 7;
+
+    final cats = pick(isV2 || isV1 ? categoriesIndex : categoriesIndexV3)?.split('|').where((e) => e.trim().isNotEmpty).toList() ?? <String>[];
     return MerchantKycDraft(
       businessType: pick(0),
       registrationNumber: pick(1),
@@ -1137,9 +1209,7 @@ class MerchantKycDraft {
       nationality: pick(4),
       iban: pick(5),
       accountHolderName: pick(6),
-      customerSupportAddress: pick(7),
       categories: cats,
-      smsVerified: sms,
     );
   }
 }

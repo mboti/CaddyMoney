@@ -129,11 +129,8 @@ class MerchantService {
     required String nationality,
     required String iban,
     required String accountHolderName,
-    required String customerSupportAddress,
     required List<String> categories,
-    required bool smsVerified,
     String? idDocumentPath,
-    String? proofOfAddressPath,
     String? businessRegistrationDocPath,
   }) async {
     try {
@@ -150,11 +147,8 @@ class MerchantService {
           'nationality': nationality,
           'iban': iban,
           'account_holder_name': accountHolderName,
-          'customer_support_address': customerSupportAddress,
           'categories': categories,
-          'sms_verified': smsVerified,
           'id_document_path': idDocumentPath,
-          'proof_of_address_path': proofOfAddressPath,
           'business_registration_doc_path': businessRegistrationDocPath,
           'profile_completed': true,
           'profile_completed_at': DateTime.now().toIso8601String(),
