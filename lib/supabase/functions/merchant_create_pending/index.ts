@@ -59,6 +59,26 @@ Deno.serve(async (req) => {
       );
     }
 
+    // If a profile row already exists for this email but belongs to a different user,
+    // fail with a clear error instead of crashing on the unique constraint.
+    const { data: existingByEmail, error: existingByEmailErr } = await admin
+      .from("profiles")
+      .select("id,email")
+      .eq("email", businessEmail)
+      .maybeSingle();
+    if (existingByEmailErr) {
+      return new Response(JSON.stringify({ success: false, error: existingByEmailErr.message }), {
+        status: 500,
+        headers: { ...CORS_HEADERS, "content-type": "application/json" },
+      });
+    }
+    if (existingByEmail && existingByEmail.id && existingByEmail.id !== profileId) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Email already associated with another profile." }),
+        { status: 409, headers: { ...CORS_HEADERS, "content-type": "application/json" } },
+      );
+    }
+
     // Ensure a minimal profile row exists (some setups rely on triggers; this is defensive).
     // If your DB trigger already creates profiles, this upsert is harmless.
     const { error: profileErr } = await admin.from("profiles").upsert(
@@ -79,9 +99,11 @@ Deno.serve(async (req) => {
     }
 
     const now = new Date().toISOString();
+    const ownerName = `${ownerFirstName} ${ownerLastName}`.trim();
     const merchantRow: Record<string, unknown> = {
       profile_id: profileId,
       business_name: businessName,
+      owner_name: ownerName,
       owner_first_name: ownerFirstName,
       owner_last_name: ownerLastName,
       business_email: businessEmail,
@@ -97,21 +119,46 @@ Deno.serve(async (req) => {
       updated_at: now,
     };
 
-    // Create or update (in case the same user retries).
-    const { data, error } = await admin
+    // NOTE:
+    // Some projects do NOT have a UNIQUE constraint on merchants.profile_id.
+    // In that case, Postgres will reject any UPSERT with:
+    // "there is no unique or exclusion constraint matching the ON CONFLICT specification".
+    // So we implement an explicit select-then-insert/update flow instead.
+    const { data: existingMerchant, error: existingMerchantErr } = await admin
       .from("merchants")
-      .upsert(merchantRow, { onConflict: "profile_id" })
-      .select("profile_id")
-      .single();
+      .select("id, profile_id")
+      .eq("profile_id", profileId)
+      .maybeSingle();
 
-    if (error) {
-      return new Response(JSON.stringify({ success: false, error: error.message }), {
+    if (existingMerchantErr) {
+      return new Response(JSON.stringify({ success: false, error: existingMerchantErr.message }), {
         status: 500,
         headers: { ...CORS_HEADERS, "content-type": "application/json" },
       });
     }
 
-    return new Response(JSON.stringify({ success: true, profile_id: data?.profile_id ?? profileId }), {
+    if (existingMerchant?.id) {
+      const { error: updateErr } = await admin
+        .from("merchants")
+        .update(merchantRow)
+        .eq("id", existingMerchant.id);
+      if (updateErr) {
+        return new Response(JSON.stringify({ success: false, error: updateErr.message }), {
+          status: 500,
+          headers: { ...CORS_HEADERS, "content-type": "application/json" },
+        });
+      }
+    } else {
+      const { error: insertErr } = await admin.from("merchants").insert(merchantRow);
+      if (insertErr) {
+        return new Response(JSON.stringify({ success: false, error: insertErr.message }), {
+          status: 500,
+          headers: { ...CORS_HEADERS, "content-type": "application/json" },
+        });
+      }
+    }
+
+    return new Response(JSON.stringify({ success: true, profile_id: profileId }), {
       status: 200,
       headers: { ...CORS_HEADERS, "content-type": "application/json" },
     });

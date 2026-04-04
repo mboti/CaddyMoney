@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:caddymoney/theme.dart';
@@ -213,7 +214,10 @@ class _PendingMerchantsPanelState extends State<_PendingMerchantsPanel> {
   @override
   void initState() {
     super.initState();
-    _future = _service.listMerchantsResult(statuses: const ['pending', 'under_review'], limit: 20);
+    // Supabase `merchant_status` is an enum; only query values that exist in the DB.
+    // In this app, the “Under review” UX maps to the `pending` status.
+    // We only want applications that were actually submitted (KYC completed).
+    _future = _service.listMerchantsResult(statuses: const ['pending'], profileCompleted: true, limit: 20);
     _PendingMerchantsPanel.refreshSignal.addListener(_onRefreshSignal);
   }
 
@@ -226,7 +230,7 @@ class _PendingMerchantsPanelState extends State<_PendingMerchantsPanel> {
   void _onRefreshSignal() {
     if (!mounted) return;
     setState(() {
-      _future = _service.listMerchantsResult(statuses: const ['pending', 'under_review'], limit: 20);
+      _future = _service.listMerchantsResult(statuses: const ['pending'], profileCompleted: true, limit: 20);
     });
   }
 
@@ -263,12 +267,7 @@ class _PendingMerchantsPanelState extends State<_PendingMerchantsPanel> {
           );
         }
         if (items.isEmpty) {
-          return Text(
-            'No pending requests right now.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          );
+          return _EmptyPendingMerchantsHint(service: _service);
         }
 
         return Column(
@@ -298,6 +297,55 @@ class _PendingMerchantsPanelState extends State<_PendingMerchantsPanel> {
     if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
     if (diff.inHours < 24) return '${diff.inHours} hours ago';
     return '${diff.inDays} days ago';
+  }
+}
+
+class _EmptyPendingMerchantsHint extends StatefulWidget {
+  final MerchantService service;
+  const _EmptyPendingMerchantsHint({required this.service});
+
+  @override
+  State<_EmptyPendingMerchantsHint> createState() => _EmptyPendingMerchantsHintState();
+}
+
+class _EmptyPendingMerchantsHintState extends State<_EmptyPendingMerchantsHint> {
+  late Future<int?> _draftCountFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _draftCountFuture = _loadDraftCount();
+  }
+
+  Future<int?> _loadDraftCount() async {
+    try {
+      // Count merchants that are still pending but NOT submitted (profile_completed=false).
+      final rows = await widget.service.listMerchants(statuses: const ['pending'], profileCompleted: false, limit: 50);
+      // This is a diagnostic hint only (limit 50). If you need exact counts, replace with an RPC.
+      return rows.length;
+    } catch (e) {
+      debugPrint('Admin dashboard failed to load draft merchant count: $e');
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final baseStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          height: 1.4,
+        );
+
+    return FutureBuilder<int?>(
+      future: _draftCountFuture,
+      builder: (context, snap) {
+        final draftCount = snap.data;
+        final extra = (draftCount ?? 0) > 0
+            ? ' ($draftCount merchant${draftCount == 1 ? '' : 's'} created but not submitted yet)'
+            : '';
+        return Text('No pending requests right now.$extra', style: baseStyle);
+      },
+    );
   }
 }
 

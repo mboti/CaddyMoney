@@ -22,11 +22,12 @@ import 'package:caddymoney/providers/auth_provider.dart';
 import 'package:caddymoney/core/enums/app_role.dart';
 import 'package:caddymoney/core/enums/merchant_status.dart';
 import 'package:caddymoney/core/config/supabase_config.dart';
+import 'package:caddymoney/core/utils/router_refresh.dart';
 
 class AppRouter {
   static final GoRouter router = GoRouter(
     initialLocation: AppRoutes.splash,
-    refreshListenable: _AuthRefreshListenable(),
+    refreshListenable: _AppRouterRefreshListenable(),
     redirect: (context, state) {
       final auth = context.read<AuthProvider>();
       final location = state.matchedLocation;
@@ -227,16 +228,20 @@ class AppRoutes {
   static const String profile = '/profile';
 }
 
-class _AuthRefreshListenable extends ChangeNotifier {
-  _AuthRefreshListenable() {
-    _sub = SupabaseConfig.client.auth.onAuthStateChange.listen((_) => notifyListeners());
+class _AppRouterRefreshListenable extends ChangeNotifier {
+  _AppRouterRefreshListenable() {
+    _authSub = SupabaseConfig.client.auth.onAuthStateChange.listen((_) => notifyListeners());
+    RouterRefresh.instance.addListener(_onRouterRefresh);
   }
 
-  late final StreamSubscription _sub;
+  late final StreamSubscription _authSub;
+
+  void _onRouterRefresh() => notifyListeners();
 
   @override
   void dispose() {
-    _sub.cancel();
+    _authSub.cancel();
+    RouterRefresh.instance.removeListener(_onRouterRefresh);
     super.dispose();
   }
 }

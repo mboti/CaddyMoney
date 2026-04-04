@@ -6,6 +6,7 @@ import 'package:caddymoney/core/enums/app_role.dart';
 import 'package:caddymoney/models/merchant_model.dart';
 import 'package:caddymoney/services/merchant_service.dart';
 import 'package:caddymoney/core/enums/merchant_status.dart';
+import 'package:caddymoney/core/utils/router_refresh.dart';
 
 class AuthProvider with ChangeNotifier {
   final AuthService _authService = AuthService();
@@ -57,6 +58,7 @@ class AuthProvider with ChangeNotifier {
         _currentMerchant = null;
       }
       notifyListeners();
+      RouterRefresh.instance.ping();
     } catch (e) {
       debugPrint('Error loading current user: $e');
     }
@@ -67,6 +69,7 @@ class AuthProvider with ChangeNotifier {
     try {
       _currentMerchant = await _merchantService.getMyMerchant();
       notifyListeners();
+      RouterRefresh.instance.ping();
     } catch (e) {
       debugPrint('AuthProvider.refreshMerchant failed: $e');
     }
@@ -246,6 +249,7 @@ class AuthProvider with ChangeNotifier {
     _currentUser = null;
     _currentMerchant = null;
     notifyListeners();
+    RouterRefresh.instance.ping();
   }
 
   Future<bool> createAdminFromBootstrap({

@@ -549,7 +549,7 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
         return;
       }
 
-      final ok = await _merchantService.updateMyMerchantKyc(
+      final saveRes = await _merchantService.updateMyMerchantKycResult(
         businessType: _businessTypeController.text.trim(),
         registrationNumber: _registrationNumberController.text.trim().isEmpty ? null : _registrationNumberController.text.trim(),
         vatNumber: _vatNumberController.text.trim().isEmpty ? null : _vatNumberController.text.trim(),
@@ -562,17 +562,43 @@ class _MerchantOnboardingKycScreenState extends State<MerchantOnboardingKycScree
         businessRegistrationDocPath: regRes.path,
         logoPath: logoRes.path,
         submitForReview: true,
+        businessName: _businessNameController.text.trim(),
+        ownerFirstName: _firstNameController.text.trim(),
+        ownerLastName: _lastNameController.text.trim(),
+        businessEmail: _emailController.text.trim(),
+        businessPhone: _phoneController.text.trim(),
+        addressLine1: _addressLine1Controller.text.trim(),
+        addressLine2: _addressLine2Controller.text.trim().isEmpty ? null : _addressLine2Controller.text.trim(),
+        city: _cityController.text.trim(),
+        postalCode: _postalCodeController.text.trim(),
+        countryName: _countryController.text.trim(),
       );
 
       if (!mounted) return;
-      if (!ok) {
+      if (!saveRes.ok) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to save your profile. Please try again.')),
+          SnackBar(content: Text(saveRes.error ?? 'Failed to save your profile. Please try again.')),
         );
         return;
       }
 
       await context.read<AuthProvider>().refreshMerchant();
+      final refreshedMerchant = context.read<AuthProvider>().currentMerchant;
+      final isActuallySubmitted = refreshedMerchant?.profileCompleted == true && refreshedMerchant?.status == MerchantStatus.pending;
+      if (!isActuallySubmitted) {
+        debugPrint(
+          'KYC submit mismatch: update returned ok but refreshed merchant is profileCompleted=${refreshedMerchant?.profileCompleted} status=${refreshedMerchant?.status}',
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Your submission could not be confirmed. Please try again. If the issue persists, contact support.',
+            ),
+          ),
+        );
+        return;
+      }
       // Ensure no transient SnackBars from previous steps linger into the next screen.
       ScaffoldMessenger.of(context).clearSnackBars();
       context.go(AppRoutes.merchantUnderReview);

@@ -1,7 +1,11 @@
 
 [functions.merchant_create_pending]
 enabled = true
-verify_jwt = true
+# This function is called during merchant registration, and in many Supabase setups
+# signUp() returns `session == null` until the user confirms their email.
+# With no JWT available, verify_jwt must be disabled or the request is rejected
+# before your function code runs.
+verify_jwt = false
 import_map = "./functions/merchant_create_pending/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
