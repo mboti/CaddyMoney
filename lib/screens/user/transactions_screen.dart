@@ -21,6 +21,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
   bool _loading = true;
   List<TransactionModel> _items = const [];
+  // Default to Incoming so users land on received transfers first.
+  TransactionsDirectionFilter _filter = TransactionsDirectionFilter.incoming;
 
   @override
   void initState() {
@@ -47,6 +49,20 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final uid = SupabaseConfig.auth.currentUser?.id;
+
+    List<TransactionModel> filteredItems() {
+      if (uid == null) return _items;
+      switch (_filter) {
+        case TransactionsDirectionFilter.all:
+          return _items;
+        case TransactionsDirectionFilter.incoming:
+          return _items.where((t) => t.receiverProfileId == uid).toList(growable: false);
+        case TransactionsDirectionFilter.outgoing:
+          return _items.where((t) => t.receiverProfileId != uid).toList(growable: false);
+      }
+    }
+
+    final filtered = filteredItems();
 
     return Scaffold(
       appBar: AppBar(
@@ -84,16 +100,96 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                         ),
                       ],
                     )
-                  : ListView.separated(
-                      padding: AppSpacing.paddingLg,
-                      itemCount: _items.length,
-                      separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.sm),
-                      itemBuilder: (context, index) {
-                        final t = _items[index];
-                        final isCredit = uid != null && t.receiverProfileId == uid;
-                        return TransactionListTile(transaction: t, isCredit: isCredit);
-                      },
-                    ),
+                  : filtered.isEmpty
+                      ? ListView(
+                          padding: AppSpacing.paddingLg,
+                          children: [
+                            TransactionsDirectionFilterBar(
+                              value: _filter,
+                              onChanged: (v) => setState(() => _filter = v),
+                            ),
+                            const SizedBox(height: AppSpacing.lg),
+                            Icon(Icons.filter_list_off, size: 44, color: cs.onSurfaceVariant),
+                            const SizedBox(height: AppSpacing.md),
+                            Text('No transactions for this filter', style: tt.titleMedium, textAlign: TextAlign.center),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Try switching back to “All” to see everything.',
+                              style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        )
+                      : ListView.separated(
+                          padding: AppSpacing.paddingLg,
+                          itemCount: filtered.length + 1,
+                          separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.sm),
+                          itemBuilder: (context, index) {
+                            if (index == 0) {
+                              return TransactionsDirectionFilterBar(
+                                value: _filter,
+                                onChanged: (v) => setState(() => _filter = v),
+                              );
+                            }
+                            final t = filtered[index - 1];
+                            final isCredit = uid != null && t.receiverProfileId == uid;
+                            return TransactionListTile(transaction: t, isCredit: isCredit);
+                          },
+                        ),
+        ),
+      ),
+    );
+  }
+}
+
+enum TransactionsDirectionFilter { all, incoming, outgoing }
+
+class TransactionsDirectionFilterBar extends StatelessWidget {
+  final TransactionsDirectionFilter value;
+  final ValueChanged<TransactionsDirectionFilter> onChanged;
+
+  const TransactionsDirectionFilterBar({super.key, required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.35)),
+      ),
+      child: SegmentedButton<TransactionsDirectionFilter>(
+        segments: const [
+          ButtonSegment(value: TransactionsDirectionFilter.incoming, label: Text('Incoming'), icon: Icon(Icons.arrow_downward)),
+          ButtonSegment(value: TransactionsDirectionFilter.outgoing, label: Text('Outgoing'), icon: Icon(Icons.arrow_upward)),
+          ButtonSegment(value: TransactionsDirectionFilter.all, label: Text('All'), icon: Icon(Icons.view_list)),
+        ],
+        selected: {value},
+        onSelectionChanged: (set) {
+          if (set.isEmpty) return;
+          onChanged(set.first);
+        },
+        showSelectedIcon: false,
+        style: ButtonStyle(
+          textStyle: WidgetStatePropertyAll(tt.labelMedium?.copyWith(fontWeight: FontWeight.w700)),
+          foregroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) return cs.onPrimary;
+            return cs.onSurface;
+          }),
+          backgroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) return cs.primary;
+            return cs.surfaceContainerHighest.withValues(alpha: 0.18);
+          }),
+          side: WidgetStateProperty.resolveWith((states) {
+            final c = cs.outlineVariant.withValues(alpha: states.contains(WidgetState.selected) ? 0 : 0.35);
+            return BorderSide(color: c);
+          }),
+          padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+          shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(999))),
         ),
       ),
     );

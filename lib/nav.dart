@@ -12,6 +12,7 @@ import 'package:caddymoney/screens/merchant/merchant_dashboard_screen.dart';
 import 'package:caddymoney/screens/merchant/merchant_onboarding_kyc_screen.dart';
 import 'package:caddymoney/screens/merchant/merchant_under_review_screen.dart';
 import 'package:caddymoney/screens/admin/admin_dashboard_screen.dart';
+import 'package:caddymoney/screens/admin/admin_merchant_review_screen.dart';
 import 'package:caddymoney/screens/settings_screen.dart';
 import 'package:caddymoney/screens/settings/payment_methods_screen.dart';
 import 'package:caddymoney/screens/user/profile_screen.dart';
@@ -56,7 +57,7 @@ class AppRouter {
           location == AppRoutes.profile ||
           location == AppRoutes.paymentMethods ||
           location == AppRoutes.settings;
-      final isAdminProtected = location == AppRoutes.adminDashboard;
+      final isAdminProtected = location == AppRoutes.adminDashboard || location == AppRoutes.adminMerchantReview;
 
       if (!isAuthed && (isMerchantProtected || isUserProtected || isAdminProtected)) {
         return AppRoutes.roleSelection;
@@ -162,6 +163,18 @@ class AppRouter {
         ),
       ),
       GoRoute(
+        path: AppRoutes.adminMerchantReview,
+        name: 'admin-merchant-review',
+        pageBuilder: (context, state) {
+          final extra = state.extra;
+          if (extra is AdminMerchantReviewArgs) {
+            return NoTransitionPage(child: AdminMerchantReviewScreen(args: extra));
+          }
+          // Fallback if route was opened incorrectly.
+          return const NoTransitionPage(child: AdminDashboardScreen());
+        },
+      ),
+      GoRoute(
         path: AppRoutes.settings,
         name: 'settings',
         pageBuilder: (context, state) => const NoTransitionPage(
@@ -220,6 +233,7 @@ class AppRoutes {
   static const String merchantOnboarding = '/merchant-onboarding';
   static const String merchantUnderReview = '/merchant-under-review';
   static const String adminDashboard = '/admin-dashboard';
+  static const String adminMerchantReview = '/admin-merchant-review';
   static const String settings = '/settings';
   static const String paymentMethods = '/payment-methods';
   static const String sendMoney = '/send-money';

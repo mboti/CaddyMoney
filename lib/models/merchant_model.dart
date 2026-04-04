@@ -30,6 +30,7 @@ class MerchantModel {
   final String? idDocumentPath;
   final String? proofOfAddressPath;
   final String? businessRegistrationDocPath;
+  final String? logoPath;
   final bool? smsVerified;
   final bool? profileCompleted;
   final DateTime? profileCompletedAt;
@@ -71,6 +72,7 @@ class MerchantModel {
     this.idDocumentPath,
     this.proofOfAddressPath,
     this.businessRegistrationDocPath,
+    this.logoPath,
     this.smsVerified,
     this.profileCompleted,
     this.profileCompletedAt,
@@ -116,6 +118,7 @@ class MerchantModel {
       idDocumentPath: json['id_document_path'] as String?,
       proofOfAddressPath: json['proof_of_address_path'] as String?,
       businessRegistrationDocPath: json['business_registration_doc_path'] as String?,
+      logoPath: json['logo_path'] as String?,
       smsVerified: json['sms_verified'] as bool?,
       profileCompleted: json['profile_completed'] as bool?,
       profileCompletedAt: json['profile_completed_at'] != null ? DateTime.parse(json['profile_completed_at'] as String) : null,
@@ -160,6 +163,7 @@ class MerchantModel {
       'id_document_path': idDocumentPath,
       'proof_of_address_path': proofOfAddressPath,
       'business_registration_doc_path': businessRegistrationDocPath,
+      'logo_path': logoPath,
       'sms_verified': smsVerified,
       'profile_completed': profileCompleted,
       'profile_completed_at': profileCompletedAt?.toIso8601String(),
@@ -203,6 +207,7 @@ class MerchantModel {
     String? idDocumentPath,
     String? proofOfAddressPath,
     String? businessRegistrationDocPath,
+    String? logoPath,
     bool? smsVerified,
     bool? profileCompleted,
     DateTime? profileCompletedAt,
@@ -244,6 +249,7 @@ class MerchantModel {
       idDocumentPath: idDocumentPath ?? this.idDocumentPath,
       proofOfAddressPath: proofOfAddressPath ?? this.proofOfAddressPath,
       businessRegistrationDocPath: businessRegistrationDocPath ?? this.businessRegistrationDocPath,
+      logoPath: logoPath ?? this.logoPath,
       smsVerified: smsVerified ?? this.smsVerified,
       profileCompleted: profileCompleted ?? this.profileCompleted,
       profileCompletedAt: profileCompletedAt ?? this.profileCompletedAt,
