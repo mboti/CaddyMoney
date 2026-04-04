@@ -210,6 +210,7 @@ class _PendingMerchantsPanel extends StatefulWidget {
 class _PendingMerchantsPanelState extends State<_PendingMerchantsPanel> {
   final _service = MerchantService();
   late Future<({List<MerchantModel> merchants, String? error})> _future;
+  String? _busyMerchantId;
 
   @override
   void initState() {
@@ -279,17 +280,118 @@ class _PendingMerchantsPanelState extends State<_PendingMerchantsPanel> {
             return Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.sm),
               child: MerchantApprovalItem(
+                isBusy: _busyMerchantId == m.id,
                 businessName: m.businessName,
                 ownerName: owner.isNotEmpty ? owner : (m.ownerName ?? '—'),
                 category: categories.isNotEmpty ? categories : '—',
                 submittedDate: _relativeTime(m.createdAt),
-                onDecision: () => _PendingMerchantsPanel.refreshSignal.value++,
+                onApprove: () => _approve(m),
+                onReject: () => _reject(m),
               ),
             );
           }).toList(),
         );
       },
     );
+  }
+
+  Future<void> _approve(MerchantModel merchant) async {
+    if (!mounted) return;
+    setState(() => _busyMerchantId = merchant.id);
+    try {
+      final res = await _service.decideMerchantReviewResult(merchantId: merchant.id, decision: 'approve');
+      if (!mounted) return;
+
+      if (!res.ok) {
+        final missing = res.missingFields;
+        final msg = missing != null && missing.isNotEmpty
+            ? 'Cannot approve: missing fields: ${missing.join(', ')}'
+            : (res.error ?? 'Approval failed.');
+        _showSnack(context, msg, isError: true);
+        if (_looksLikeAuthExpired(res.error)) _redirectToAdminLogin();
+        return;
+      }
+
+      final emailMsg = (res.emailSent == true)
+          ? 'Approved. Email sent to merchant.'
+          : (res.emailSkipped == true)
+              ? 'Approved. Email skipped (email provider not configured).'
+              : 'Approved.';
+      _showSnack(context, emailMsg, isError: false);
+      _PendingMerchantsPanel.refreshSignal.value++;
+    } catch (e) {
+      debugPrint('Admin approve merchant failed: $e');
+      if (mounted) _showSnack(context, 'Approval failed: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _busyMerchantId = null);
+    }
+  }
+
+  Future<void> _reject(MerchantModel merchant) async {
+    final reason = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (context) => _RejectMerchantSheet(businessName: merchant.businessName),
+    );
+
+    final trimmed = (reason ?? '').trim();
+    if (trimmed.isEmpty) return;
+
+    if (!mounted) return;
+    setState(() => _busyMerchantId = merchant.id);
+    try {
+      final res = await _service.decideMerchantReviewResult(
+        merchantId: merchant.id,
+        decision: 'reject',
+        reason: trimmed,
+      );
+      if (!mounted) return;
+
+      if (!res.ok) {
+        _showSnack(context, res.error ?? 'Rejection failed.', isError: true);
+        if (_looksLikeAuthExpired(res.error)) _redirectToAdminLogin();
+        return;
+      }
+
+      final emailMsg = (res.emailSent == true)
+          ? 'Rejected. Email sent to merchant.'
+          : (res.emailSkipped == true)
+              ? 'Rejected. Email skipped (email provider not configured).'
+              : 'Rejected.';
+      _showSnack(context, emailMsg, isError: false);
+      _PendingMerchantsPanel.refreshSignal.value++;
+    } catch (e) {
+      debugPrint('Admin reject merchant failed: $e');
+      if (mounted) _showSnack(context, 'Rejection failed: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _busyMerchantId = null);
+    }
+  }
+
+  void _showSnack(BuildContext context, String message, {required bool isError}) {
+    final scheme = Theme.of(context).colorScheme;
+    final bg = isError ? scheme.errorContainer : scheme.secondaryContainer;
+    final fg = isError ? scheme.onErrorContainer : scheme.onSecondaryContainer;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: TextStyle(color: fg)),
+        backgroundColor: bg,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  bool _looksLikeAuthExpired(String? message) {
+    final m = (message ?? '').toLowerCase();
+    return m.contains('unauthorized') || m.contains('sign in again') || m.contains('session expired') || m.contains('not signed in');
+  }
+
+  void _redirectToAdminLogin() {
+    if (!mounted) return;
+    // Clear stack to avoid user returning to protected screens.
+    context.go('/admin-login');
   }
 
   String _relativeTime(DateTime date) {
@@ -520,7 +622,9 @@ class MerchantApprovalItem extends StatelessWidget {
   final String ownerName;
   final String category;
   final String submittedDate;
-  final VoidCallback? onDecision;
+  final VoidCallback? onApprove;
+  final VoidCallback? onReject;
+  final bool isBusy;
 
   const MerchantApprovalItem({
     super.key,
@@ -528,7 +632,9 @@ class MerchantApprovalItem extends StatelessWidget {
     required this.ownerName,
     required this.category,
     required this.submittedDate,
-    this.onDecision,
+    this.onApprove,
+    this.onReject,
+    this.isBusy = false,
   });
 
   @override
@@ -585,19 +691,114 @@ class MerchantApprovalItem extends StatelessWidget {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: onDecision,
+                  onPressed: isBusy ? null : onReject,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.error,
                     side: const BorderSide(color: AppColors.error),
                   ),
-                  child: const Text('Reject'),
+                  child: isBusy
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Reject'),
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: onDecision,
-                  child: const Text('Approve'),
+                  onPressed: isBusy ? null : onApprove,
+                  child: isBusy
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Approve'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RejectMerchantSheet extends StatefulWidget {
+  final String businessName;
+  const _RejectMerchantSheet({required this.businessName});
+
+  @override
+  State<_RejectMerchantSheet> createState() => _RejectMerchantSheetState();
+}
+
+class _RejectMerchantSheetState extends State<_RejectMerchantSheet> {
+  final _controller = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final reason = _controller.text.trim();
+    if (reason.length < 3) {
+      setState(() => _error = 'Please enter a short reason (min 3 characters).');
+      return;
+    }
+    context.pop(reason);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+    return Padding(
+      padding: EdgeInsets.only(left: AppSpacing.lg, right: AppSpacing.lg, top: AppSpacing.md, bottom: AppSpacing.lg + viewInsets.bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Reject ${widget.businessName}',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Tell the merchant why their request was rejected. They will receive this message by email.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.4),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            minLines: 3,
+            maxLines: 6,
+            decoration: InputDecoration(
+              labelText: 'Rejection reason',
+              errorText: _error,
+            ),
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => context.pop(),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _submit,
+                  child: const Text('Reject'),
                 ),
               ),
             ],

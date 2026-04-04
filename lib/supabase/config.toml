@@ -26,3 +26,20 @@ entrypoint = "./functions/postal-cities/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/postal-cities/*.html" ]
+
+[functions.merchant_review_decide]
+enabled = true
+# NOTE:
+# Some clients (especially during auth refresh / web) can hit Supabase Functions
+# with a token that the gateway rejects as "Invalid JWT" before the function code
+# runs. We do our own auth+admin authorization inside the function anyway
+# (client.auth.getUser() + profiles.role check), so disable gateway JWT
+# verification to avoid false negatives.
+verify_jwt = false
+import_map = "./functions/merchant_review_decide/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/merchant_review_decide/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/merchant_review_decide/*.html" ]

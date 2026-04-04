@@ -6,6 +6,168 @@ import 'package:file_selector/file_selector.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class MerchantService {
+  Future<({bool ok, String? error, List<String>? missingFields, bool? emailSent, bool? emailSkipped})> decideMerchantReviewResult({
+    required String merchantId,
+    required String decision,
+    String? reason,
+  }) async {
+    try {
+      final adminId = SupabaseConfig.auth.currentUser?.id;
+      if (adminId == null) {
+        return (ok: false, error: 'Not signed in.', missingFields: null, emailSent: null, emailSkipped: null);
+      }
+
+      // Prefer the built-in Supabase auth forwarding for Edge Functions.
+      // Only fall back to explicitly sending a Bearer token if we still get 401.
+      final res = await _invokeMerchantReviewDecide(merchantId: merchantId, decision: decision, reason: reason);
+
+      final data = res.data;
+      if (data is Map && data['success'] == true) {
+        return (
+          ok: true,
+          error: null,
+          missingFields: null,
+          emailSent: data['email_sent'] as bool?,
+          emailSkipped: data['email_skipped'] as bool?,
+        );
+      }
+
+      // Supabase functions can return a JSON map with an error field.
+      if (data is Map) {
+        final missing = data['missing_fields'];
+        final missingFields = missing is List ? missing.map((e) => e.toString()).toList() : null;
+        return (
+          ok: false,
+          error: (data['error'] ?? 'Request failed.').toString(),
+          missingFields: missingFields,
+          emailSent: null,
+          emailSkipped: null,
+        );
+      }
+
+      return (ok: false, error: 'Request failed.', missingFields: null, emailSent: null, emailSkipped: null);
+    } on FunctionException catch (e) {
+      debugPrint('MerchantService.decideMerchantReviewResult function error: $e');
+      debugPrint('FunctionException status: ${e.status}; details: ${e.details}');
+      _debugLogCurrentSession(context: 'merchant_review_decide/catch');
+
+      // If the access token is expired, attempt a single refresh + retry.
+      if (e.status == 401) {
+        final retry = await _refreshAndRetry(merchantId: merchantId, decision: decision, reason: reason);
+        if (retry != null) return retry;
+      }
+
+      final details = e.details;
+      if (details is Map && details['error'] != null) {
+        final missing = details['missing_fields'];
+        final missingFields = missing is List ? missing.map((e) => e.toString()).toList() : null;
+        return (
+          ok: false,
+          error: details['error'].toString(),
+          missingFields: missingFields,
+          emailSent: null,
+          emailSkipped: null,
+        );
+      }
+      final status = e.status;
+
+      // If the Supabase Functions gateway rejects the token as "Invalid JWT" even
+      // after refresh, the local session is likely stale/corrupted.
+      final detailsMsg = details is Map ? (details['message'] ?? details['error'])?.toString() : null;
+      if (status == 401 && detailsMsg != null && detailsMsg.toLowerCase().contains('invalid jwt')) {
+        try {
+          await SupabaseConfig.auth.signOut();
+        } catch (signOutErr) {
+          debugPrint('MerchantService: signOut after Invalid JWT failed: $signOutErr');
+        }
+        return (ok: false, error: 'Your session is invalid. Please sign in again.', missingFields: null, emailSent: null, emailSkipped: null);
+      }
+
+      final friendly = switch (status) {
+        401 => 'Unauthorized. Please sign in again.',
+        403 => 'Forbidden. Your account is not allowed to perform this action.',
+        _ => 'Request failed ($status).',
+      };
+      return (ok: false, error: friendly, missingFields: null, emailSent: null, emailSkipped: null);
+    } catch (e) {
+      debugPrint('MerchantService.decideMerchantReviewResult failed: $e');
+      return (ok: false, error: e.toString(), missingFields: null, emailSent: null, emailSkipped: null);
+    }
+  }
+
+  Future<FunctionResponse> _invokeMerchantReviewDecide({
+    required String merchantId,
+    required String decision,
+    String? reason,
+  }) async {
+    final trimmedReason = (reason ?? '').trim();
+    final body = {
+      'merchant_id': merchantId,
+      'decision': decision,
+      if (trimmedReason.isNotEmpty) 'reason': trimmedReason,
+    };
+
+    // IMPORTANT:
+    // Do NOT manually override Authorization headers unless strictly necessary.
+    // Supabase Flutter forwards the current session automatically.
+    _debugLogCurrentSession(context: 'merchant_review_decide/invoke');
+    return SupabaseConfig.client.functions.invoke('merchant_review_decide', body: body);
+  }
+
+  static void _debugLogCurrentSession({required String context}) {
+    try {
+      final session = SupabaseConfig.auth.currentSession;
+      final uid = SupabaseConfig.auth.currentUser?.id;
+      final accessToken = session?.accessToken;
+      final expiresAt = session?.expiresAt;
+      debugPrint(
+        'MerchantService: session debug [$context] user=${uid ?? 'null'} '
+        'token=${accessToken == null ? 'null' : 'present(len=${accessToken.length})'} '
+        'expiresAt=${expiresAt ?? 'null'}',
+      );
+    } catch (e) {
+      debugPrint('MerchantService: session debug [$context] failed: $e');
+    }
+  }
+
+  Future<({bool ok, String? error, List<String>? missingFields, bool? emailSent, bool? emailSkipped})?> _refreshAndRetry({
+    required String merchantId,
+    required String decision,
+    String? reason,
+  }) async {
+    try {
+      debugPrint('MerchantService: attempting auth.refreshSession() after 401...');
+      await SupabaseConfig.auth.refreshSession();
+
+      final res = await _invokeMerchantReviewDecide(merchantId: merchantId, decision: decision, reason: reason);
+      final data = res.data;
+      if (data is Map && data['success'] == true) {
+        return (
+          ok: true,
+          error: null,
+          missingFields: null,
+          emailSent: data['email_sent'] as bool?,
+          emailSkipped: data['email_skipped'] as bool?,
+        );
+      }
+      if (data is Map) {
+        final missing = data['missing_fields'];
+        final missingFields = missing is List ? missing.map((e) => e.toString()).toList() : null;
+        return (
+          ok: false,
+          error: (data['error'] ?? 'Request failed.').toString(),
+          missingFields: missingFields,
+          emailSent: null,
+          emailSkipped: null,
+        );
+      }
+      return (ok: false, error: 'Request failed.', missingFields: null, emailSent: null, emailSkipped: null);
+    } catch (e) {
+      debugPrint('MerchantService: refresh+retry failed: $e');
+      return null;
+    }
+  }
+
   Future<({bool ok, String? error})> updateMyMerchantKycResult({
     required String businessType,
     String? registrationNumber,
@@ -245,40 +407,10 @@ class MerchantService {
 
   Future<bool> approveMerchant({required String merchantId, String? reason}) async {
     try {
-      final adminId = SupabaseConfig.auth.currentUser?.id;
-      if (adminId == null) return false;
-
-      final existing = await SupabaseService.selectSingle(
-        'merchants',
-        filters: {'id': merchantId},
-      );
-      if (existing == null) return false;
-      final oldStatus = existing['status'];
-
-      await SupabaseService.update(
-        'merchants',
-        {
-          'status': 'approved',
-          'approved_by': adminId,
-          'approved_at': DateTime.now().toIso8601String(),
-          'rejected_reason': null,
-          'suspended_reason': null,
-        },
-        filters: {'id': merchantId},
-      );
-
-      await SupabaseService.insert(
-        'merchant_status_history',
-        {
-          'merchant_id': merchantId,
-          'old_status': oldStatus,
-          'new_status': 'approved',
-          'changed_by': adminId,
-          'reason': reason,
-        },
-      );
-
-      return true;
+      final res = await decideMerchantReviewResult(merchantId: merchantId, decision: 'approve', reason: reason);
+      if (res.ok) return true;
+      debugPrint('MerchantService.approveMerchant failed via edge function: ${res.error}');
+      return false;
     } catch (e) {
       debugPrint('MerchantService.approveMerchant failed: $e');
       return false;
@@ -287,39 +419,10 @@ class MerchantService {
 
   Future<bool> rejectMerchant({required String merchantId, required String reason}) async {
     try {
-      final adminId = SupabaseConfig.auth.currentUser?.id;
-      if (adminId == null) return false;
-
-      final existing = await SupabaseService.selectSingle(
-        'merchants',
-        filters: {'id': merchantId},
-      );
-      if (existing == null) return false;
-      final oldStatus = existing['status'];
-
-      await SupabaseService.update(
-        'merchants',
-        {
-          'status': 'rejected',
-          'approved_by': null,
-          'approved_at': null,
-          'rejected_reason': reason,
-        },
-        filters: {'id': merchantId},
-      );
-
-      await SupabaseService.insert(
-        'merchant_status_history',
-        {
-          'merchant_id': merchantId,
-          'old_status': oldStatus,
-          'new_status': 'rejected',
-          'changed_by': adminId,
-          'reason': reason,
-        },
-      );
-
-      return true;
+      final res = await decideMerchantReviewResult(merchantId: merchantId, decision: 'reject', reason: reason);
+      if (res.ok) return true;
+      debugPrint('MerchantService.rejectMerchant failed via edge function: ${res.error}');
+      return false;
     } catch (e) {
       debugPrint('MerchantService.rejectMerchant failed: $e');
       return false;
